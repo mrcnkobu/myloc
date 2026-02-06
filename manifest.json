@@ -1,0 +1,9 @@
+{
+	"id": "myloc",
+	"name": "MyLoc",
+	"version": "0.1.0",
+	"minAppVersion": "1.0.0",
+	"description": "Insert your current location into notes. GPS coordinates and address via OpenStreetMap.",
+	"author": "mkobu",
+	"isDesktopOnly": false
+}
