@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "node esbuild.config.mjs production",
-		"deploy": "npm run build && cp main.js manifest.json ~/sync/sync-mkobu/sync-mkobu_LPT/projects/obsidian-test-env/.obsidian/plugins/myloc/"
+		"deploy": "npm run build && bash -c 'source .env && cp main.js manifest.json \"$OBSIDIAN_PLUGIN_PATH\"'"
 	},
 	"keywords": [
 		"obsidian",
