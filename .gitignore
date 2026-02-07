@@ -20,3 +20,6 @@ data.json
 
 # Environment
 .env
+
+# Local development notes
+CLAUDE.md

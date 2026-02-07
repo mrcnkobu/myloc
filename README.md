@@ -83,6 +83,57 @@ weather: "12°C, Partly cloudy"
 | Address language | Language code for addresses (en, pl, de, etc.) |
 | Frontmatter fields | Choose what to include in frontmatter |
 
+## Development
+
+### Setup
+
+```bash
+git clone https://github.com/mrcnkobu/myloc.git
+cd myloc
+npm install
+```
+
+### Configuration
+
+Copy the environment template and set your test vault path:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+```bash
+OBSIDIAN_PLUGIN_PATH=/path/to/your/vault/.obsidian/plugins/myloc/
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Development build with sourcemaps |
+| `npm run build` | Production build (minified) |
+| `npm run deploy` | Build and copy to test vault |
+
+### Testing
+
+1. Run `npm run deploy`
+2. Open Obsidian and enable the plugin in Settings → Community Plugins
+3. Reload the plugin after changes: `Ctrl+P` → "Reload app without saving"
+
+For mobile testing via Syncthing or similar, `npm run deploy` copies actual files (symlinks don't sync).
+
+### Project Structure
+
+```
+myloc/
+├── main.ts           # Plugin source
+├── manifest.json     # Plugin metadata
+├── package.json      # Dependencies & scripts
+├── esbuild.config.mjs # Build configuration
+├── .env.example      # Environment template
+└── .env              # Local config (gitignored)
+```
+
 ## Privacy
 
 - Location data is only sent to OpenStreetMap (for addresses) and Open-Meteo (for weather)
