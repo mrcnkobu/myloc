@@ -18,10 +18,12 @@ npm run build    # Production build (minified)
 npm run deploy   # Build + copy to test vault
 ```
 
-### Test Vault Location
+### Test Vault Configuration
+Path is defined in `.env` (gitignored):
+```bash
+OBSIDIAN_PLUGIN_PATH=/path/to/vault/.obsidian/plugins/myloc/
 ```
-~/sync/sync-mkobu/sync-mkobu_LPT/projects/obsidian-test-env/.obsidian/plugins/myloc/
-```
+Copy `.env.example` to `.env` and set your path.
 
 ### Testing
 1. Run `npm run deploy`
