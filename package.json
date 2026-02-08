@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "node esbuild.config.mjs production",
-		"deploy": "npm run build && bash -c 'source .env && cp main.js manifest.json \"$OBSIDIAN_PLUGIN_PATH\"'"
+		"deploy": "npm run build && bash -c 'source .env && cp main.js manifest.json \"$OBSIDIAN_PLUGIN_PATH\" && [ -n \"$OBSIDIAN_TEST_PLUGIN_PATH\" ] && mkdir -p \"$OBSIDIAN_TEST_PLUGIN_PATH\" && cp main.js manifest.json \"$OBSIDIAN_TEST_PLUGIN_PATH\" || true'"
 	},
 	"keywords": [
 		"obsidian",

@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, requestUrl } from "obsidian";
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, requestUrl } from "obsidian";
 
 type MapProvider = "osm" | "google";
 type TempUnit = "celsius" | "fahrenheit";
@@ -6,6 +6,15 @@ type TempUnit = "celsius" | "fahrenheit";
 interface NamedTemplate {
 	id: string;
 	name: string;
+	template: string;
+}
+
+interface SavedPlace {
+	id: string;
+	name: string;
+	latitude: number;
+	longitude: number;
+	radius: number;
 	template: string;
 }
 
@@ -19,6 +28,7 @@ interface FrontmatterFields {
 interface MyLocSettings {
 	format: string;
 	customTemplates: NamedTemplate[];
+	savedPlaces: SavedPlace[];
 	mapProvider: MapProvider;
 	language: string;
 	timezone: string;
@@ -31,6 +41,7 @@ interface MyLocSettings {
 const DEFAULT_SETTINGS: MyLocSettings = {
 	format: "full",
 	customTemplates: [],
+	savedPlaces: [],
 	mapProvider: "osm",
 	language: "",
 	timezone: "",
@@ -102,6 +113,16 @@ function getSystemTimezone(): string {
 	return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+	const R = 6371000;
+	const toRad = (deg: number) => deg * Math.PI / 180;
+	const dLat = toRad(lat2 - lat1);
+	const dLon = toRad(lon2 - lon1);
+	const a = Math.sin(dLat / 2) ** 2 +
+		Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 const WEATHER_CODES: Record<number, string> = {
 	0: "Clear",
 	1: "Mostly clear",
@@ -158,10 +179,27 @@ export default class MyLocPlugin extends Plugin {
 		this.addCommand({
 			id: "insert-location",
 			name: "Insert location",
-			editorCallback: (editor: Editor) => {
-				new FormatPickerModal(this.app, this.settings.customTemplates, (formatId) => {
-					this.insertLocationWithFormat(editor, formatId);
-				}).open();
+			editorCallback: async (editor: Editor) => {
+				const notice = new Notice("Getting location...", 0);
+				try {
+					const location = await this.getLocation();
+					const place = await this.resolvePlace(location);
+					notice.hide();
+					if (place) {
+						const text = await this.formatLocation(location, place);
+						editor.replaceSelection(text);
+						new Notice("Location inserted");
+					} else {
+						new FormatPickerModal(this.app, this.settings.customTemplates, async (formatId) => {
+							const text = await this.formatLocation(location, formatId);
+							editor.replaceSelection(text);
+							new Notice("Location inserted");
+						}).open();
+					}
+				} catch {
+					notice.hide();
+					new Notice("Failed to get location");
+				}
 			},
 		});
 
@@ -181,12 +219,57 @@ export default class MyLocPlugin extends Plugin {
 			},
 		});
 
-		this.addRibbonIcon("map-pin", "Insert location", () => {
+		this.addCommand({
+			id: "save-current-location",
+			name: "Save current location as place",
+			callback: async () => {
+				const notice = new Notice("Getting location...", 0);
+				try {
+					const location = await this.getLocation();
+					notice.hide();
+					new SavePlaceModal(this.app, async (name) => {
+						const place: SavedPlace = {
+							id: generateId(),
+							name,
+							latitude: location.latitude,
+							longitude: location.longitude,
+							radius: 200,
+							template: "{place}\n{coords}",
+						};
+						this.settings.savedPlaces.push(place);
+						await this.saveSettings();
+						new Notice(`Place saved — customize in settings`);
+					}).open();
+				} catch {
+					notice.hide();
+					new Notice("Failed to get location");
+				}
+			},
+		});
+
+		this.addRibbonIcon("map-pin", "Insert location", async () => {
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (view) {
-				this.insertLocationWithFormat(view.editor, this.settings.format);
-			} else {
+			if (!view) {
 				new Notice("Open a note to insert location");
+				return;
+			}
+			const notice = new Notice("Getting location...", 0);
+			try {
+				const location = await this.getLocation();
+				const place = await this.resolvePlace(location);
+				notice.hide();
+				if (place) {
+					const text = await this.formatLocation(location, place);
+					view.editor.replaceSelection(text);
+					new Notice("Location inserted");
+				} else {
+					const text = await this.formatLocation(location, this.settings.format);
+					view.editor.replaceSelection(text);
+					new Notice("Location inserted");
+				}
+			} catch {
+				notice.hide();
+				new Notice("Failed to get location");
 			}
 		});
 
@@ -226,21 +309,6 @@ export default class MyLocPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	private async insertLocationWithFormat(editor: Editor, formatId: string) {
-		const notice = new Notice("Getting location...", 0);
-
-		try {
-			const location = await this.getLocation();
-			const text = await this.formatLocation(location, formatId);
-			editor.replaceSelection(text);
-			notice.hide();
-			new Notice("Location inserted");
-		} catch (error) {
-			notice.hide();
-			new Notice("Failed to get location");
-		}
-	}
-
 	private async insertFrontmatter(update: boolean) {
 		const file = this.app.workspace.getActiveFile();
 		if (!file) {
@@ -252,15 +320,20 @@ export default class MyLocPlugin extends Plugin {
 
 		try {
 			const location = await this.getLocation();
+			const place = await this.resolvePlace(location);
 			const fields = this.settings.frontmatterFields;
 
 			let address: AddressResult | null = null;
 			let weather: WeatherResult | null = null;
 
 			if (fields.address) {
-				try {
-					address = await this.reverseGeocode(location.latitude, location.longitude);
-				} catch {}
+				if (place) {
+					address = { display: place.name };
+				} else {
+					try {
+						address = await this.reverseGeocode(location.latitude, location.longitude);
+					} catch {}
+				}
 			}
 
 			if (fields.weather) {
@@ -325,12 +398,42 @@ export default class MyLocPlugin extends Plugin {
 		};
 	}
 
-	private async formatLocation(location: LocationResult, formatId?: string): Promise<string> {
-		const id = formatId || this.settings.format;
+	private async formatLocation(location: LocationResult, formatIdOrPlace?: string | SavedPlace): Promise<string> {
 		const coords = `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
 		const approx = location.isApproximate ? " (approximate)" : "";
 		const mapUrl = this.getMapUrl(location.latitude, location.longitude);
 		const { date, time, datetime } = this.formatDateTime(new Date());
+
+		// If a SavedPlace is passed, use its template with the place name as address
+		if (formatIdOrPlace && typeof formatIdOrPlace !== "string") {
+			const place = formatIdOrPlace;
+			let weather: WeatherResult | null = null;
+			if (/\{(weather|temp)\}/.test(place.template)) {
+				try {
+					weather = await this.getWeather(location.latitude, location.longitude);
+				} catch {}
+			}
+			const weatherStr = weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : "";
+			const tempStr = weather ? `${weather.temperature}${weather.unit}` : "";
+			return this.applyTemplate(place.template, {
+				lat: location.latitude.toFixed(6),
+				lon: location.longitude.toFixed(6),
+				coords: coords + approx,
+				address: place.name,
+				place: place.name,
+				city: "",
+				country: "",
+				mapUrl,
+				mapLink: `[Open in Map](${mapUrl})`,
+				date,
+				time,
+				datetime,
+				weather: weatherStr,
+				temp: tempStr,
+			});
+		}
+
+		const id = (formatIdOrPlace as string) || this.settings.format;
 
 		let address: AddressResult | null = null;
 		let weather: WeatherResult | null = null;
@@ -363,6 +466,7 @@ export default class MyLocPlugin extends Plugin {
 				lon: location.longitude.toFixed(6),
 				coords: coords + approx,
 				address: address?.display || "",
+				place: "",
 				city: address?.city || "",
 				country: address?.country || "",
 				mapUrl,
@@ -509,7 +613,107 @@ export default class MyLocPlugin extends Plugin {
 		};
 	}
 
+	private findMatchingPlaces(location: LocationResult): { place: SavedPlace; distance: number }[] {
+		return this.settings.savedPlaces
+			.map((place) => ({
+				place,
+				distance: haversineDistance(location.latitude, location.longitude, place.latitude, place.longitude),
+			}))
+			.filter((m) => m.distance <= m.place.radius)
+			.sort((a, b) => a.distance - b.distance);
+	}
+
+	private async resolvePlace(location: LocationResult): Promise<SavedPlace | null> {
+		const matches = this.findMatchingPlaces(location);
+		if (matches.length === 0) return null;
+		return new Promise((resolve) => {
+			new SavedPlacePickerModal(this.app, matches, (place) => resolve(place)).open();
+		});
+	}
+
 	onunload() {}
+}
+
+interface PlacePickerOption {
+	place: SavedPlace | null;
+	name: string;
+	description: string;
+}
+
+class SavedPlacePickerModal extends SuggestModal<PlacePickerOption> {
+	private onChoose: (place: SavedPlace | null) => void;
+	private options: PlacePickerOption[];
+
+	constructor(
+		app: App,
+		matches: { place: SavedPlace; distance: number }[],
+		onChoose: (place: SavedPlace | null) => void
+	) {
+		super(app);
+		this.onChoose = onChoose;
+		this.options = [
+			...matches.map((m) => ({
+				place: m.place,
+				name: m.place.name,
+				description: `${Math.round(m.distance)}m away`,
+			})),
+			{ place: null, name: "Use detected location", description: "Skip saved places" },
+		];
+	}
+
+	getSuggestions(query: string): PlacePickerOption[] {
+		const lower = query.toLowerCase();
+		return this.options.filter(
+			(o) => o.name.toLowerCase().includes(lower) || o.description.toLowerCase().includes(lower)
+		);
+	}
+
+	renderSuggestion(option: PlacePickerOption, el: HTMLElement): void {
+		el.createEl("div", { text: option.name });
+		el.createEl("small", { text: option.description, cls: "mod-muted" });
+	}
+
+	onChooseSuggestion(option: PlacePickerOption): void {
+		this.onChoose(option.place);
+	}
+}
+
+class SavePlaceModal extends Modal {
+	private onSave: (name: string) => void;
+
+	constructor(app: App, onSave: (name: string) => void) {
+		super(app);
+		this.onSave = onSave;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl("h3", { text: "Save place" });
+
+		let name = "";
+		new Setting(contentEl)
+			.setName("Place name")
+			.addText((text) =>
+				text.setPlaceholder("e.g. Home, Work, Gym").onChange((value) => {
+					name = value.trim();
+				})
+			);
+
+		new Setting(contentEl).addButton((btn) =>
+			btn.setButtonText("Save").setCta().onClick(() => {
+				if (name) {
+					this.onSave(name);
+					this.close();
+				} else {
+					new Notice("Enter a name for this place");
+				}
+			})
+		);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
 }
 
 class FormatPickerModal extends SuggestModal<FormatOption> {
@@ -707,7 +911,7 @@ class MyLocSettingTab extends PluginSettingTab {
 		// Custom templates
 		containerEl.createEl("h3", { text: "Custom templates" });
 
-		const placeholderHelp = "Placeholders: {lat}, {lon}, {coords}, {address}, {city}, {country}, {mapUrl}, {mapLink}, {date}, {time}, {datetime}, {weather}, {temp}";
+		const placeholderHelp = "Placeholders: {lat}, {lon}, {coords}, {address}, {place}, {city}, {country}, {mapUrl}, {mapLink}, {date}, {time}, {datetime}, {weather}, {temp}";
 
 		for (let i = 0; i < this.plugin.settings.customTemplates.length; i++) {
 			const tmpl = this.plugin.settings.customTemplates[i];
@@ -749,6 +953,75 @@ class MyLocSettingTab extends PluginSettingTab {
 					id: generateId(),
 					name: "New template",
 					template: "{address}\n{coords}\n{mapLink}",
+				});
+				await this.plugin.saveSettings();
+				this.display();
+			})
+		);
+
+		// Saved places
+		containerEl.createEl("h3", { text: "Saved places" });
+
+		for (let i = 0; i < this.plugin.settings.savedPlaces.length; i++) {
+			const place = this.plugin.settings.savedPlaces[i];
+
+			new Setting(containerEl)
+				.setName("Place name")
+				.addText((text) =>
+					text.setValue(place.name).onChange(async (value) => {
+						place.name = value;
+						await this.plugin.saveSettings();
+					})
+				)
+				.addExtraButton((btn) =>
+					btn.setIcon("trash").setTooltip("Delete place").onClick(async () => {
+						this.plugin.settings.savedPlaces.splice(i, 1);
+						await this.plugin.saveSettings();
+						this.display();
+					})
+				);
+
+			new Setting(containerEl)
+				.setName("Coordinates")
+				.setDesc(`${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}`)
+				.addText((text) =>
+					text
+						.setPlaceholder("200")
+						.setValue(String(place.radius))
+						.onChange(async (value) => {
+							const num = parseInt(value);
+							if (!isNaN(num) && num > 0) {
+								place.radius = num;
+								await this.plugin.saveSettings();
+							}
+						})
+				)
+				.then((setting) => {
+					setting.controlEl.querySelector("input")?.setAttribute("type", "number");
+					setting.nameEl.appendText(" — Radius (m):");
+				});
+
+			new Setting(containerEl)
+				.setDesc(placeholderHelp)
+				.addTextArea((text) => {
+					text.setValue(place.template).onChange(async (value) => {
+						place.template = value;
+						await this.plugin.saveSettings();
+					});
+					text.inputEl.rows = 4;
+					text.inputEl.style.width = "100%";
+				});
+		}
+
+		new Setting(containerEl).addButton((btn) =>
+			btn.setButtonText("Add place").onClick(async () => {
+				this.plugin.settings.savedPlaces.push({
+					id: generateId(),
+					name: "New place",
+					latitude: 0,
+					longitude: 0,
+					radius: 200,
+					template: "{place}\n{coords}",
 				});
 				await this.plugin.saveSettings();
 				this.display();
