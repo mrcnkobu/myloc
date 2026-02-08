@@ -1,8 +1,13 @@
-import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from "obsidian";
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, requestUrl } from "obsidian";
 
-type OutputFormat = "full" | "compact" | "coords" | "custom";
 type MapProvider = "osm" | "google";
 type TempUnit = "celsius" | "fahrenheit";
+
+interface NamedTemplate {
+	id: string;
+	name: string;
+	template: string;
+}
 
 interface FrontmatterFields {
 	location: boolean;
@@ -12,8 +17,8 @@ interface FrontmatterFields {
 }
 
 interface MyLocSettings {
-	format: OutputFormat;
-	customTemplate: string;
+	format: string;
+	customTemplates: NamedTemplate[];
 	mapProvider: MapProvider;
 	language: string;
 	timezone: string;
@@ -25,7 +30,7 @@ interface MyLocSettings {
 
 const DEFAULT_SETTINGS: MyLocSettings = {
 	format: "full",
-	customTemplate: "{address}\n{coords}\n{mapLink}",
+	customTemplates: [],
 	mapProvider: "osm",
 	language: "",
 	timezone: "",
@@ -124,6 +129,26 @@ const WEATHER_CODES: Record<number, string> = {
 	99: "Thunderstorm with hail",
 };
 
+function generateId(): string {
+	try {
+		return crypto.randomUUID().slice(0, 8);
+	} catch {
+		return Date.now().toString(36);
+	}
+}
+
+interface FormatOption {
+	id: string;
+	name: string;
+	description: string;
+}
+
+const BUILTIN_FORMATS: FormatOption[] = [
+	{ id: "full", name: "Full", description: "Address, coordinates, map link" },
+	{ id: "compact", name: "Compact", description: "Address with coordinates" },
+	{ id: "coords", name: "Coordinates only", description: "GPS coordinates" },
+];
+
 export default class MyLocPlugin extends Plugin {
 	settings: MyLocSettings;
 
@@ -134,7 +159,9 @@ export default class MyLocPlugin extends Plugin {
 			id: "insert-location",
 			name: "Insert location",
 			editorCallback: (editor: Editor) => {
-				this.insertLocation(editor);
+				new FormatPickerModal(this.app, this.settings.customTemplates, (formatId) => {
+					this.insertLocationWithFormat(editor, formatId);
+				}).open();
 			},
 		});
 
@@ -157,7 +184,7 @@ export default class MyLocPlugin extends Plugin {
 		this.addRibbonIcon("map-pin", "Insert location", () => {
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 			if (view) {
-				this.insertLocation(view.editor);
+				this.insertLocationWithFormat(view.editor, this.settings.format);
 			} else {
 				new Notice("Open a note to insert location");
 			}
@@ -174,18 +201,37 @@ export default class MyLocPlugin extends Plugin {
 			DEFAULT_SETTINGS.frontmatterFields,
 			loaded?.frontmatterFields
 		);
+
+		// Migrate old customTemplate to customTemplates array
+		if (loaded && "customTemplate" in loaded && !Array.isArray(loaded.customTemplates)) {
+			const oldTemplate = loaded.customTemplate as string;
+			if (oldTemplate) {
+				const id = generateId();
+				this.settings.customTemplates = [{ id, name: "Custom", template: oldTemplate }];
+				if (this.settings.format === "custom") {
+					this.settings.format = id;
+				}
+			} else {
+				this.settings.customTemplates = [];
+			}
+			if (this.settings.format === "custom") {
+				this.settings.format = "full";
+			}
+			delete (this.settings as Record<string, unknown>)["customTemplate"];
+			await this.saveSettings();
+		}
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
 
-	private async insertLocation(editor: Editor) {
+	private async insertLocationWithFormat(editor: Editor, formatId: string) {
 		const notice = new Notice("Getting location...", 0);
 
 		try {
 			const location = await this.getLocation();
-			const text = await this.formatLocation(location);
+			const text = await this.formatLocation(location, formatId);
 			editor.replaceSelection(text);
 			notice.hide();
 			new Notice("Location inserted");
@@ -279,7 +325,8 @@ export default class MyLocPlugin extends Plugin {
 		};
 	}
 
-	private async formatLocation(location: LocationResult): Promise<string> {
+	private async formatLocation(location: LocationResult, formatId?: string): Promise<string> {
+		const id = formatId || this.settings.format;
 		const coords = `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
 		const approx = location.isApproximate ? " (approximate)" : "";
 		const mapUrl = this.getMapUrl(location.latitude, location.longitude);
@@ -288,14 +335,19 @@ export default class MyLocPlugin extends Plugin {
 		let address: AddressResult | null = null;
 		let weather: WeatherResult | null = null;
 
-		if (this.settings.format !== "coords") {
+		// Look up custom template if not a built-in format
+		const customTemplate = !["full", "compact", "coords"].includes(id)
+			? this.settings.customTemplates.find((t) => t.id === id)
+			: null;
+
+		if (id !== "coords") {
 			try {
 				address = await this.reverseGeocode(location.latitude, location.longitude);
 			} catch {}
 		}
 
 		const needsWeather = this.settings.includeWeather ||
-			(this.settings.format === "custom" && /\{(weather|temp)\}/.test(this.settings.customTemplate));
+			(customTemplate && /\{(weather|temp)\}/.test(customTemplate.template));
 		if (needsWeather) {
 			try {
 				weather = await this.getWeather(location.latitude, location.longitude);
@@ -305,8 +357,8 @@ export default class MyLocPlugin extends Plugin {
 		const weatherStr = weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : "";
 		const tempStr = weather ? `${weather.temperature}${weather.unit}` : "";
 
-		if (this.settings.format === "custom") {
-			return this.applyTemplate(this.settings.customTemplate, {
+		if (customTemplate) {
+			return this.applyTemplate(customTemplate.template, {
 				lat: location.latitude.toFixed(6),
 				lon: location.longitude.toFixed(6),
 				coords: coords + approx,
@@ -323,21 +375,21 @@ export default class MyLocPlugin extends Plugin {
 			});
 		}
 
-		if (this.settings.format === "coords") {
+		if (id === "coords") {
 			let result = coords + approx;
 			if (this.settings.includeTimestamp) result += ` — ${datetime}`;
 			if (weather) result += ` — ${weatherStr}`;
 			return result;
 		}
 
-		if (this.settings.format === "compact") {
+		if (id === "compact") {
 			let result = address ? `${address.display} (${coords})${approx}` : coords + approx;
 			if (this.settings.includeTimestamp) result += ` — ${datetime}`;
 			if (weather) result += ` — ${weatherStr}`;
 			return result;
 		}
 
-		// Full format
+		// Full format (also fallback for unknown IDs)
 		const lines: string[] = [];
 		if (address) lines.push(address.display);
 		lines.push(coords + approx);
@@ -460,6 +512,40 @@ export default class MyLocPlugin extends Plugin {
 	onunload() {}
 }
 
+class FormatPickerModal extends SuggestModal<FormatOption> {
+	private onChoose: (formatId: string) => void;
+	private options: FormatOption[];
+
+	constructor(app: App, customTemplates: NamedTemplate[], onChoose: (formatId: string) => void) {
+		super(app);
+		this.onChoose = onChoose;
+		this.options = [
+			...BUILTIN_FORMATS,
+			...customTemplates.map((t) => ({
+				id: t.id,
+				name: t.name,
+				description: t.template.length > 60 ? t.template.slice(0, 60) + "…" : t.template,
+			})),
+		];
+	}
+
+	getSuggestions(query: string): FormatOption[] {
+		const lower = query.toLowerCase();
+		return this.options.filter(
+			(o) => o.name.toLowerCase().includes(lower) || o.description.toLowerCase().includes(lower)
+		);
+	}
+
+	renderSuggestion(option: FormatOption, el: HTMLElement): void {
+		el.createEl("div", { text: option.name });
+		el.createEl("small", { text: option.description, cls: "mod-muted" });
+	}
+
+	onChooseSuggestion(option: FormatOption): void {
+		this.onChoose(option.id);
+	}
+}
+
 class MyLocSettingTab extends PluginSettingTab {
 	plugin: MyLocPlugin;
 	private timezonePreviewInterval: number | null = null;
@@ -489,35 +575,29 @@ class MyLocSettingTab extends PluginSettingTab {
 		containerEl.createEl("h3", { text: "Output" });
 
 		new Setting(containerEl)
-			.setName("Format")
-			.setDesc("How the location is formatted when inserted")
-			.addDropdown((dropdown) =>
+			.setName("Default format")
+			.setDesc("Format used by the ribbon icon")
+			.addDropdown((dropdown) => {
 				dropdown
 					.addOption("full", "Full (address, coords, map link)")
 					.addOption("compact", "Compact (address with coords)")
-					.addOption("coords", "Coordinates only")
-					.addOption("custom", "Custom template")
+					.addOption("coords", "Coordinates only");
+				for (const t of this.plugin.settings.customTemplates) {
+					dropdown.addOption(t.id, t.name);
+				}
+				// If the current format ID no longer exists, fall back to "full"
+				const validIds = ["full", "compact", "coords", ...this.plugin.settings.customTemplates.map((t) => t.id)];
+				if (!validIds.includes(this.plugin.settings.format)) {
+					this.plugin.settings.format = "full";
+					this.plugin.saveSettings();
+				}
+				dropdown
 					.setValue(this.plugin.settings.format)
-					.onChange(async (value: OutputFormat) => {
+					.onChange(async (value) => {
 						this.plugin.settings.format = value;
 						await this.plugin.saveSettings();
-						this.display();
-					})
-			);
-
-		if (this.plugin.settings.format === "custom") {
-			new Setting(containerEl)
-				.setName("Custom template")
-				.setDesc("Placeholders: {lat}, {lon}, {coords}, {address}, {city}, {country}, {mapUrl}, {mapLink}, {date}, {time}, {datetime}, {weather}, {temp}")
-				.addTextArea((text) =>
-					text
-						.setValue(this.plugin.settings.customTemplate)
-						.onChange(async (value) => {
-							this.plugin.settings.customTemplate = value;
-							await this.plugin.saveSettings();
-						})
-				);
-		}
+					});
+			});
 
 		new Setting(containerEl)
 			.setName("Include timestamp")
@@ -623,6 +703,57 @@ class MyLocSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+
+		// Custom templates
+		containerEl.createEl("h3", { text: "Custom templates" });
+
+		const placeholderHelp = "Placeholders: {lat}, {lon}, {coords}, {address}, {city}, {country}, {mapUrl}, {mapLink}, {date}, {time}, {datetime}, {weather}, {temp}";
+
+		for (let i = 0; i < this.plugin.settings.customTemplates.length; i++) {
+			const tmpl = this.plugin.settings.customTemplates[i];
+
+			new Setting(containerEl)
+				.setName("Template name")
+				.addText((text) =>
+					text.setValue(tmpl.name).onChange(async (value) => {
+						tmpl.name = value;
+						await this.plugin.saveSettings();
+					})
+				)
+				.addExtraButton((btn) =>
+					btn.setIcon("trash").setTooltip("Delete template").onClick(async () => {
+						this.plugin.settings.customTemplates.splice(i, 1);
+						if (this.plugin.settings.format === tmpl.id) {
+							this.plugin.settings.format = "full";
+						}
+						await this.plugin.saveSettings();
+						this.display();
+					})
+				);
+
+			new Setting(containerEl)
+				.setDesc(placeholderHelp)
+				.addTextArea((text) => {
+					text.setValue(tmpl.template).onChange(async (value) => {
+						tmpl.template = value;
+						await this.plugin.saveSettings();
+					});
+					text.inputEl.rows = 4;
+					text.inputEl.style.width = "100%";
+				});
+		}
+
+		new Setting(containerEl).addButton((btn) =>
+			btn.setButtonText("Add template").onClick(async () => {
+				this.plugin.settings.customTemplates.push({
+					id: generateId(),
+					name: "New template",
+					template: "{address}\n{coords}\n{mapLink}",
+				});
+				await this.plugin.saveSettings();
+				this.display();
+			})
+		);
 
 		// Frontmatter settings
 		containerEl.createEl("h3", { text: "Frontmatter" });
