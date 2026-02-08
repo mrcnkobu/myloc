@@ -8,6 +8,7 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 - **Reverse geocoding** via OpenStreetMap Nominatim — get human-readable addresses
 - **Weather integration** via Open-Meteo — current temperature and conditions
 - **Frontmatter support** — compatible with Map View plugin for plotting notes on a map
+- **Saved places** — define places (home, work, gym) with GPS radius; nearby matches use the place name as address
 - **Multiple output formats** — full, compact, coordinates only, or custom template
 - **Timezone support** — auto-detects system timezone or manual selection
 - **Works on mobile** — designed primarily for Android with GPS
@@ -29,6 +30,7 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 - **Insert location** — inserts formatted location at cursor (also available via ribbon icon)
 - **Insert location as frontmatter** — adds location to note's YAML frontmatter
 - **Update note location** — updates existing frontmatter location
+- **Save current location as place** — saves your current GPS position as a named place
 
 ### Output Formats
 
@@ -51,10 +53,19 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 
 **Custom template** — use placeholders:
 - `{lat}`, `{lon}`, `{coords}` — coordinates
-- `{address}`, `{city}`, `{country}` — address parts
+- `{address}`, `{place}`, `{city}`, `{country}` — address parts
 - `{mapUrl}`, `{mapLink}` — map links
 - `{date}`, `{time}`, `{datetime}` — timestamp
 - `{weather}`, `{temp}` — weather info
+
+### Saved Places
+
+Define named places with GPS coordinates and a detection radius. When any command detects you're near a saved place, a picker appears letting you choose the place or use the raw detected location.
+
+- **Place name** is used as the address in both inline output and frontmatter (skips reverse geocoding)
+- **Each place has its own template** using the same placeholder system as custom templates
+- **Add places** via the "Save current location as place" command (captures GPS automatically) or manually in settings
+- **`{place}`** placeholder resolves to the place name when a saved place is active, empty string otherwise
 
 ### Frontmatter
 
@@ -74,7 +85,8 @@ weather: "12°C, Partly cloudy"
 | Setting | Description |
 |---------|-------------|
 | Format | Output format (full/compact/coords/custom) |
-| Custom template | Template with placeholders |
+| Custom templates | Templates with placeholders |
+| Saved places | Named locations with radius detection and per-place templates |
 | Include timestamp | Add date/time to output |
 | Include weather | Add weather from Open-Meteo |
 | Temperature unit | Celsius or Fahrenheit |
@@ -104,6 +116,7 @@ cp .env.example .env
 Edit `.env`:
 ```bash
 OBSIDIAN_PLUGIN_PATH=/path/to/your/vault/.obsidian/plugins/myloc/
+OBSIDIAN_TEST_PLUGIN_PATH=/path/to/test/vault/.obsidian/plugins/myloc/  # optional
 ```
 
 ### Commands
@@ -112,7 +125,7 @@ OBSIDIAN_PLUGIN_PATH=/path/to/your/vault/.obsidian/plugins/myloc/
 |---------|-------------|
 | `npm run dev` | Development build with sourcemaps |
 | `npm run build` | Production build (minified) |
-| `npm run deploy` | Build and copy to test vault |
+| `npm run deploy` | Build and copy to vault(s) |
 
 ### Testing
 
