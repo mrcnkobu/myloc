@@ -3,7 +3,7 @@
 	"name": "MyLoc",
 	"version": "0.1.0",
 	"minAppVersion": "1.0.0",
-	"description": "Obsidian plugin to insert GPS location, address, and weather into notes",
+	"description": "Insert GPS location, address, and weather into notes.",
 	"author": "mkobu",
 	"isDesktopOnly": false
 }
