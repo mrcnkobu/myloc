@@ -179,71 +179,77 @@ export default class MyLocPlugin extends Plugin {
 		this.addCommand({
 			id: "insert-location",
 			name: "Insert location",
-			editorCallback: async (editor: Editor) => {
+			editorCallback: (editor: Editor) => {
 				const notice = new Notice("Getting location...", 0);
-				try {
-					const location = await this.getLocation();
-					const place = await this.resolvePlace(location);
-					notice.hide();
-					if (place) {
-						const text = await this.formatLocation(location, place);
-						editor.replaceSelection(text);
-						new Notice("Location inserted");
-					} else {
-						new FormatPickerModal(this.app, this.settings.customTemplates, async (formatId) => {
-							const text = await this.formatLocation(location, formatId);
+				void (async () => {
+					try {
+						const location = await this.getLocation();
+						const place = await this.resolvePlace(location);
+						notice.hide();
+						if (place) {
+							const text = await this.formatLocation(location, place);
 							editor.replaceSelection(text);
 							new Notice("Location inserted");
-						}).open();
+						} else {
+							new FormatPickerModal(this.app, this.settings.customTemplates, (formatId) => {
+								void this.formatLocation(location, formatId).then((text) => {
+									editor.replaceSelection(text);
+									new Notice("Location inserted");
+								});
+							}).open();
+						}
+					} catch {
+						notice.hide();
+						new Notice("Failed to get location");
 					}
-				} catch {
-					notice.hide();
-					new Notice("Failed to get location");
-				}
+				})();
 			},
 		});
 
 		this.addCommand({
 			id: "insert-location-frontmatter",
 			name: "Insert location as frontmatter",
-			editorCallback: async () => {
-				await this.insertFrontmatter(false);
+			editorCallback: () => {
+				void this.insertFrontmatter(false);
 			},
 		});
 
 		this.addCommand({
 			id: "update-location-frontmatter",
 			name: "Update note location",
-			editorCallback: async () => {
-				await this.insertFrontmatter(true);
+			editorCallback: () => {
+				void this.insertFrontmatter(true);
 			},
 		});
 
 		this.addCommand({
 			id: "save-current-location",
 			name: "Save current location as place",
-			callback: async () => {
+			callback: () => {
 				const notice = new Notice("Getting location...", 0);
-				try {
-					const location = await this.getLocation();
-					notice.hide();
-					new SavePlaceModal(this.app, async (name) => {
-						const place: SavedPlace = {
-							id: generateId(),
-							name,
-							latitude: location.latitude,
-							longitude: location.longitude,
-							radius: 200,
-							template: "{place}\n{coords}",
-						};
-						this.settings.savedPlaces.push(place);
-						await this.saveSettings();
-						new Notice(`Place saved — customize in settings`);
-					}).open();
-				} catch {
-					notice.hide();
-					new Notice("Failed to get location");
-				}
+				void (async () => {
+					try {
+						const location = await this.getLocation();
+						notice.hide();
+						new SavePlaceModal(this.app, (name) => {
+							const place: SavedPlace = {
+								id: generateId(),
+								name,
+								latitude: location.latitude,
+								longitude: location.longitude,
+								radius: 200,
+								template: "{place}\n{coords}",
+							};
+							this.settings.savedPlaces.push(place);
+							void this.saveSettings().then(() => {
+								new Notice("Place saved \u2014 customize in settings");
+							});
+						}).open();
+					} catch {
+						notice.hide();
+						new Notice("Failed to get location");
+					}
+				})();
 			},
 		});
 
@@ -332,14 +338,18 @@ export default class MyLocPlugin extends Plugin {
 				} else {
 					try {
 						address = await this.reverseGeocode(location.latitude, location.longitude);
-					} catch {}
+					} catch {
+						// Geocoding may fail due to network or rate limits
+					}
 				}
 			}
 
 			if (fields.weather) {
 				try {
 					weather = await this.getWeather(location.latitude, location.longitude);
-				} catch {}
+				} catch {
+					// Weather fetch may fail due to network issues
+				}
 			}
 
 			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -371,7 +381,7 @@ export default class MyLocPlugin extends Plugin {
 
 			notice.hide();
 			new Notice(update ? "Location updated" : "Location added to frontmatter");
-		} catch (error) {
+		} catch {
 			notice.hide();
 			new Notice("Failed to get location");
 		}
@@ -411,7 +421,9 @@ export default class MyLocPlugin extends Plugin {
 			if (/\{(weather|temp)\}/.test(place.template)) {
 				try {
 					weather = await this.getWeather(location.latitude, location.longitude);
-				} catch {}
+				} catch {
+					// Weather fetch may fail due to network issues
+				}
 			}
 			const weatherStr = weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : "";
 			const tempStr = weather ? `${weather.temperature}${weather.unit}` : "";
@@ -446,7 +458,9 @@ export default class MyLocPlugin extends Plugin {
 		if (id !== "coords") {
 			try {
 				address = await this.reverseGeocode(location.latitude, location.longitude);
-			} catch {}
+			} catch {
+				// Geocoding may fail due to network or rate limits
+			}
 		}
 
 		const needsWeather = this.settings.includeWeather ||
@@ -454,7 +468,9 @@ export default class MyLocPlugin extends Plugin {
 		if (needsWeather) {
 			try {
 				weather = await this.getWeather(location.latitude, location.longitude);
-			} catch {}
+			} catch {
+				// Weather fetch may fail due to network issues
+			}
 		}
 
 		const weatherStr = weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : "";
@@ -481,15 +497,15 @@ export default class MyLocPlugin extends Plugin {
 
 		if (id === "coords") {
 			let result = coords + approx;
-			if (this.settings.includeTimestamp) result += ` — ${datetime}`;
-			if (weather) result += ` — ${weatherStr}`;
+			if (this.settings.includeTimestamp) result += ` \u2014 ${datetime}`;
+			if (weather) result += ` \u2014 ${weatherStr}`;
 			return result;
 		}
 
 		if (id === "compact") {
 			let result = address ? `${address.display} (${coords})${approx}` : coords + approx;
-			if (this.settings.includeTimestamp) result += ` — ${datetime}`;
-			if (weather) result += ` — ${weatherStr}`;
+			if (this.settings.includeTimestamp) result += ` \u2014 ${datetime}`;
+			if (weather) result += ` \u2014 ${weatherStr}`;
 			return result;
 		}
 
@@ -538,8 +554,8 @@ export default class MyLocPlugin extends Plugin {
 						isApproximate: false,
 					});
 				},
-				(error) => {
-					reject(error);
+				(positionError) => {
+					reject(new Error(positionError.message));
 				},
 				{
 					enableHighAccuracy: true,
@@ -604,7 +620,7 @@ export default class MyLocPlugin extends Plugin {
 
 		const data = response.json;
 		const current = data.current_weather;
-		const symbol = this.settings.tempUnit === "fahrenheit" ? "°F" : "°C";
+		const symbol = this.settings.tempUnit === "fahrenheit" ? "\u00b0F" : "\u00b0C";
 
 		return {
 			temperature: Math.round(current.temperature),
@@ -631,7 +647,9 @@ export default class MyLocPlugin extends Plugin {
 		});
 	}
 
-	onunload() {}
+	onunload() {
+		// No cleanup needed
+	}
 }
 
 interface PlacePickerOption {
@@ -728,7 +746,7 @@ class FormatPickerModal extends SuggestModal<FormatOption> {
 			...customTemplates.map((t) => ({
 				id: t.id,
 				name: t.name,
-				description: t.template.length > 60 ? t.template.slice(0, 60) + "…" : t.template,
+				description: t.template.length > 60 ? t.template.slice(0, 60) + "\u2026" : t.template,
 			})),
 		];
 	}
@@ -776,7 +794,7 @@ class MyLocSettingTab extends PluginSettingTab {
 		}
 
 		// Output settings
-		containerEl.createEl("h3", { text: "Output" });
+		new Setting(containerEl).setName("Output").setHeading();
 
 		new Setting(containerEl)
 			.setName("Default format")
@@ -793,7 +811,7 @@ class MyLocSettingTab extends PluginSettingTab {
 				const validIds = ["full", "compact", "coords", ...this.plugin.settings.customTemplates.map((t) => t.id)];
 				if (!validIds.includes(this.plugin.settings.format)) {
 					this.plugin.settings.format = "full";
-					this.plugin.saveSettings();
+					void this.plugin.saveSettings();
 				}
 				dropdown
 					.setValue(this.plugin.settings.format)
@@ -836,18 +854,15 @@ class MyLocSettingTab extends PluginSettingTab {
 				});
 
 			const previewEl = timezoneSetting.descEl.createDiv({ cls: "myloc-timezone-preview" });
-			previewEl.style.marginTop = "8px";
-			previewEl.style.fontFamily = "monospace";
-			previewEl.style.opacity = "0.8";
 
 			const updatePreview = () => {
 				try {
 					const { datetime } = this.plugin.formatDateTime(new Date());
 					previewEl.textContent = `Current time: ${datetime}`;
-					previewEl.style.color = "";
+					previewEl.removeClass("myloc-error");
 				} catch {
 					previewEl.textContent = "Invalid timezone";
-					previewEl.style.color = "var(--text-error)";
+					previewEl.addClass("myloc-error");
 				}
 			};
 
@@ -872,8 +887,8 @@ class MyLocSettingTab extends PluginSettingTab {
 			.setDesc("Unit for temperature display")
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("celsius", "Celsius (°C)")
-					.addOption("fahrenheit", "Fahrenheit (°F)")
+					.addOption("celsius", "Celsius (\u00b0C)")
+					.addOption("fahrenheit", "Fahrenheit (\u00b0F)")
 					.setValue(this.plugin.settings.tempUnit)
 					.onChange(async (value: TempUnit) => {
 						this.plugin.settings.tempUnit = value;
@@ -909,7 +924,7 @@ class MyLocSettingTab extends PluginSettingTab {
 			);
 
 		// Custom templates
-		containerEl.createEl("h3", { text: "Custom templates" });
+		new Setting(containerEl).setName("Custom templates").setHeading();
 
 		const placeholderHelp = "Placeholders: {lat}, {lon}, {coords}, {address}, {place}, {city}, {country}, {mapUrl}, {mapLink}, {date}, {time}, {datetime}, {weather}, {temp}";
 
@@ -943,7 +958,7 @@ class MyLocSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 					text.inputEl.rows = 4;
-					text.inputEl.style.width = "100%";
+					text.inputEl.addClass("myloc-template-textarea");
 				});
 		}
 
@@ -960,7 +975,7 @@ class MyLocSettingTab extends PluginSettingTab {
 		);
 
 		// Saved places
-		containerEl.createEl("h3", { text: "Saved places" });
+		new Setting(containerEl).setName("Saved places").setHeading();
 
 		for (let i = 0; i < this.plugin.settings.savedPlaces.length; i++) {
 			const place = this.plugin.settings.savedPlaces[i];
@@ -998,7 +1013,7 @@ class MyLocSettingTab extends PluginSettingTab {
 				)
 				.then((setting) => {
 					setting.controlEl.querySelector("input")?.setAttribute("type", "number");
-					setting.nameEl.appendText(" — Radius (m):");
+					setting.nameEl.appendText(" \u2014 Radius (m):");
 				});
 
 			new Setting(containerEl)
@@ -1009,7 +1024,7 @@ class MyLocSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 					text.inputEl.rows = 4;
-					text.inputEl.style.width = "100%";
+					text.inputEl.addClass("myloc-place-textarea");
 				});
 		}
 
@@ -1029,7 +1044,7 @@ class MyLocSettingTab extends PluginSettingTab {
 		);
 
 		// Frontmatter settings
-		containerEl.createEl("h3", { text: "Frontmatter" });
+		new Setting(containerEl).setName("Frontmatter").setHeading();
 
 		new Setting(containerEl)
 			.setName("Include location")
