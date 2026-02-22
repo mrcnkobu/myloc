@@ -18,6 +18,15 @@ interface SavedPlace {
 	template: string;
 }
 
+interface LocationNote {
+	id: string;
+	name: string;
+	directory: string;
+	filenameTemplate: string;
+	templatePath: string;
+	linkTemplate: string;
+}
+
 interface FrontmatterFields {
 	location: boolean;
 	address: boolean;
@@ -35,6 +44,7 @@ interface MyLocSettings {
 	tempUnit: TempUnit;
 	includeTimestamp: boolean;
 	includeWeather: boolean;
+	locationNotes: LocationNote[];
 	frontmatterFields: FrontmatterFields;
 }
 
@@ -42,6 +52,7 @@ const DEFAULT_SETTINGS: MyLocSettings = {
 	format: "full",
 	customTemplates: [],
 	savedPlaces: [],
+	locationNotes: [],
 	mapProvider: "osm",
 	language: "",
 	timezone: "",
@@ -150,6 +161,43 @@ const WEATHER_CODES: Record<number, string> = {
 	99: "Thunderstorm with hail",
 };
 
+function formatDatePattern(date: Date, pattern: string, timezone: string): string {
+	const parts: Record<string, string> = {};
+	const get = (opts: Intl.DateTimeFormatOptions) =>
+		new Intl.DateTimeFormat("en-US", { ...opts, timeZone: timezone }).format(date);
+
+	const year = get({ year: "numeric" });
+	const month = get({ month: "2-digit" });
+	const day = get({ day: "2-digit" });
+	const hour = get({ hour: "2-digit", hour12: false });
+	const minute = get({ minute: "2-digit" });
+	const second = get({ second: "2-digit" });
+
+	parts["yyyy"] = year;
+	parts["yy"] = year.slice(-2);
+	parts["MM"] = month;
+	parts["M"] = String(parseInt(month));
+	parts["dd"] = day;
+	parts["d"] = String(parseInt(day));
+	parts["HH"] = hour.padStart(2, "0");
+	parts["H"] = String(parseInt(hour));
+	parts["mm"] = minute.padStart(2, "0");
+	parts["m"] = String(parseInt(minute));
+	parts["ss"] = second.padStart(2, "0");
+	parts["s"] = String(parseInt(second));
+
+	// Replace longest tokens first to avoid partial matches
+	let result = pattern;
+	for (const token of ["yyyy", "yy", "MM", "M", "dd", "d", "HH", "H", "mm", "m", "ss", "s"]) {
+		result = result.split(token).join(parts[token]);
+	}
+	return result;
+}
+
+function sanitizeFilename(name: string): string {
+	return name.replace(/[/\\:*?"<>|]/g, "");
+}
+
 function generateId(): string {
 	try {
 		return crypto.randomUUID().slice(0, 8);
@@ -219,6 +267,14 @@ export default class MyLocPlugin extends Plugin {
 			name: "Update note location",
 			editorCallback: () => {
 				void this.insertFrontmatter(true);
+			},
+		});
+
+		this.addCommand({
+			id: "insert-location-note",
+			name: "Insert location as new note",
+			callback: () => {
+				void this.createLocationNote();
 			},
 		});
 
@@ -520,7 +576,14 @@ export default class MyLocPlugin extends Plugin {
 	}
 
 	private applyTemplate(template: string, values: Record<string, string>): string {
-		return template.replace(/\{(\w+)\}/g, (_, key) => values[key] || "");
+		// First resolve {date:FORMAT} patterns
+		const tz = this.getTimezone();
+		let result = template.replace(/\{date:([^}]+)\}/g, (_, pattern) =>
+			formatDatePattern(new Date(), pattern, tz)
+		);
+		// Then resolve simple {key} placeholders
+		result = result.replace(/\{(\w+)\}/g, (_, key) => values[key] || "");
+		return result;
 	}
 
 	private getMapUrl(lat: number, lon: number): string {
@@ -647,6 +710,152 @@ export default class MyLocPlugin extends Plugin {
 		});
 	}
 
+	private async uniquePath(dir: string, basename: string): Promise<string> {
+		const path = `${dir}/${basename}.md`;
+		if (!this.app.vault.getAbstractFileByPath(path)) return path;
+		let n = 2;
+		while (this.app.vault.getAbstractFileByPath(`${dir}/${basename} (${n}).md`)) {
+			n++;
+		}
+		return `${dir}/${basename} (${n}).md`;
+	}
+
+	private async createLocationNote() {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) {
+			new Notice("Open a note to insert a location note link");
+			return;
+		}
+
+		if (this.settings.locationNotes.length === 0) {
+			new Notice("No location notes configured. Add one in settings.");
+			return;
+		}
+
+		const notice = new Notice("Getting location...", 0);
+		let location: LocationResult;
+		try {
+			location = await this.getLocation();
+		} catch {
+			notice.hide();
+			new Notice("Failed to get location");
+			return;
+		}
+
+		const place = await this.resolvePlace(location);
+
+		// Pick location note config (or use the only one)
+		let noteConfig: LocationNote;
+		if (this.settings.locationNotes.length === 1) {
+			noteConfig = this.settings.locationNotes[0];
+		} else {
+			try {
+				noteConfig = await new Promise<LocationNote>((resolve, reject) => {
+					new LocationNotePickerModal(this.app, this.settings.locationNotes, (picked) => {
+						if (picked) resolve(picked);
+						else reject(new Error("cancelled"));
+					}).open();
+				});
+			} catch {
+				notice.hide();
+				return; // User cancelled
+			}
+		}
+
+		// Read template file
+		const templateFile = this.app.vault.getAbstractFileByPath(noteConfig.templatePath);
+		if (!templateFile || !("stat" in templateFile)) {
+			notice.hide();
+			new Notice(`Template file not found: ${noteConfig.templatePath}`);
+			return;
+		}
+		const templateContent = await this.app.vault.read(templateFile as import("obsidian").TFile);
+
+		// Gather data for placeholders
+		const coords = `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+		const approx = location.isApproximate ? " (approximate)" : "";
+		const mapUrl = this.getMapUrl(location.latitude, location.longitude);
+		const { date, time, datetime } = this.formatDateTime(new Date());
+
+		let address: AddressResult | null = null;
+		const allTemplates = [noteConfig.directory, noteConfig.filenameTemplate, templateContent, noteConfig.linkTemplate].join("\n");
+		const needsAddress = /\{(address|city|country)\}/.test(allTemplates);
+		const needsWeather = /\{(weather|temp)\}/.test(allTemplates);
+
+		if (place) {
+			address = { display: place.name, city: undefined, country: undefined };
+		} else if (needsAddress) {
+			try {
+				address = await this.reverseGeocode(location.latitude, location.longitude);
+			} catch {
+				notice.hide();
+				new Notice("Geocoding failed, cannot resolve address placeholders");
+				return;
+			}
+		}
+
+		let weather: WeatherResult | null = null;
+		if (needsWeather) {
+			try {
+				weather = await this.getWeather(location.latitude, location.longitude);
+			} catch {
+				// Weather fetch may fail
+			}
+		}
+
+		const weatherStr = weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : "";
+		const tempStr = weather ? `${weather.temperature}${weather.unit}` : "";
+
+		const placeholders: Record<string, string> = {
+			lat: location.latitude.toFixed(6),
+			lon: location.longitude.toFixed(6),
+			coords: coords + approx,
+			address: address?.display || "",
+			place: place?.name || "",
+			city: address?.city || "",
+			country: address?.country || "",
+			mapUrl,
+			mapLink: `[Open in Map](${mapUrl})`,
+			date,
+			time,
+			datetime,
+			weather: weatherStr,
+			temp: tempStr,
+		};
+
+		// Resolve directory and filename
+		const dir = this.applyTemplate(noteConfig.directory, placeholders).replace(/\/+$/, "");
+		const filename = sanitizeFilename(this.applyTemplate(noteConfig.filenameTemplate, placeholders));
+
+		// Create directory if missing
+		if (!this.app.vault.getAbstractFileByPath(dir)) {
+			try {
+				await this.app.vault.createFolder(dir);
+			} catch {
+				// Folder may already exist from race condition
+			}
+		}
+
+		// Get unique path and create note
+		const notePath = await this.uniquePath(dir, filename);
+		const noteTitle = notePath.slice(notePath.lastIndexOf("/") + 1).replace(/\.md$/, "");
+		const notePathNoExt = notePath.replace(/\.md$/, "");
+
+		// Add note-specific placeholders
+		placeholders["notePath"] = notePathNoExt;
+		placeholders["noteTitle"] = noteTitle;
+
+		const content = this.applyTemplate(templateContent, placeholders);
+		await this.app.vault.create(notePath, content);
+
+		// Insert link at cursor
+		const linkText = this.applyTemplate(noteConfig.linkTemplate, placeholders);
+		view.editor.replaceSelection(linkText);
+
+		notice.hide();
+		new Notice("Location note created");
+	}
+
 	onunload() {
 		// No cleanup needed
 	}
@@ -765,6 +974,37 @@ class FormatPickerModal extends SuggestModal<FormatOption> {
 
 	onChooseSuggestion(option: FormatOption): void {
 		this.onChoose(option.id);
+	}
+}
+
+class LocationNotePickerModal extends SuggestModal<LocationNote> {
+	private onChoose: (note: LocationNote | null) => void;
+	private notes: LocationNote[];
+	private picked = false;
+
+	constructor(app: App, notes: LocationNote[], onChoose: (note: LocationNote | null) => void) {
+		super(app);
+		this.notes = notes;
+		this.onChoose = onChoose;
+	}
+
+	onClose(): void {
+		if (!this.picked) this.onChoose(null);
+	}
+
+	getSuggestions(query: string): LocationNote[] {
+		const lower = query.toLowerCase();
+		return this.notes.filter((n) => n.name.toLowerCase().includes(lower));
+	}
+
+	renderSuggestion(note: LocationNote, el: HTMLElement): void {
+		el.createEl("div", { text: note.name });
+		el.createEl("small", { text: `${note.directory}/${note.filenameTemplate}`, cls: "mod-muted" });
+	}
+
+	onChooseSuggestion(note: LocationNote): void {
+		this.picked = true;
+		this.onChoose(note);
 	}
 }
 
@@ -1037,6 +1277,84 @@ class MyLocSettingTab extends PluginSettingTab {
 					longitude: 0,
 					radius: 200,
 					template: "{place}\n{coords}",
+				});
+				await this.plugin.saveSettings();
+				this.display();
+			})
+		);
+
+		// Location notes
+		new Setting(containerEl).setName("Location notes").setHeading();
+
+		const noteHelp = "Placeholders: {lat}, {lon}, {coords}, {address}, {place}, {city}, {country}, {mapUrl}, {mapLink}, {date}, {time}, {datetime}, {date:FORMAT}, {weather}, {temp}, {notePath}, {noteTitle}";
+
+		for (let i = 0; i < this.plugin.settings.locationNotes.length; i++) {
+			const note = this.plugin.settings.locationNotes[i];
+
+			new Setting(containerEl)
+				.setName("Name")
+				.addText((text) =>
+					text.setPlaceholder("Travel log").setValue(note.name).onChange(async (value) => {
+						note.name = value;
+						await this.plugin.saveSettings();
+					})
+				)
+				.addExtraButton((btn) =>
+					btn.setIcon("trash").setTooltip("Delete location note").onClick(async () => {
+						this.plugin.settings.locationNotes.splice(i, 1);
+						await this.plugin.saveSettings();
+						this.display();
+					})
+				);
+
+			new Setting(containerEl)
+				.setName("Directory")
+				.addText((text) =>
+					text.setPlaceholder("Locations/{date:yyyy/MM}").setValue(note.directory).onChange(async (value) => {
+						note.directory = value;
+						await this.plugin.saveSettings();
+					})
+				);
+
+			new Setting(containerEl)
+				.setName("Filename template")
+				.addText((text) =>
+					text.setPlaceholder("location_{date:yyyy-MM-dd}").setValue(note.filenameTemplate).onChange(async (value) => {
+						note.filenameTemplate = value;
+						await this.plugin.saveSettings();
+					})
+				);
+
+			new Setting(containerEl)
+				.setName("Template file")
+				.setDesc("Vault path to template note")
+				.addText((text) =>
+					text.setPlaceholder("Templates/location.md").setValue(note.templatePath).onChange(async (value) => {
+						note.templatePath = value;
+						await this.plugin.saveSettings();
+					})
+				);
+
+			new Setting(containerEl)
+				.setName("Link template")
+				.setDesc(noteHelp)
+				.addText((text) =>
+					text.setPlaceholder("[[{notePath}]]").setValue(note.linkTemplate).onChange(async (value) => {
+						note.linkTemplate = value;
+						await this.plugin.saveSettings();
+					})
+				);
+		}
+
+		new Setting(containerEl).addButton((btn) =>
+			btn.setButtonText("Add location note").onClick(async () => {
+				this.plugin.settings.locationNotes.push({
+					id: generateId(),
+					name: "New location note",
+					directory: "Locations/{date:yyyy/MM}",
+					filenameTemplate: "location_{date:yyyy-MM-dd}",
+					templatePath: "Templates/location.md",
+					linkTemplate: "[[{notePath}]]",
 				});
 				await this.plugin.saveSettings();
 				this.display();
