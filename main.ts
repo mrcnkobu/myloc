@@ -411,7 +411,7 @@ export default class MyLocPlugin extends Plugin {
 			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
 				if (!update && frontmatter.location) {
 					notice.hide();
-					new Notice("Location already exists. Use 'Update note location' to replace.");
+					new Notice("Location already exists. Use 'update note location' to replace.");
 					return;
 				}
 
@@ -921,7 +921,7 @@ class SavePlaceModal extends Modal {
 		new Setting(contentEl)
 			.setName("Place name")
 			.addText((text) =>
-				text.setPlaceholder("e.g. Home, Work, Gym").onChange((value) => {
+				text.setPlaceholder("Home, work, gym").onChange((value) => {
 					name = value.trim();
 				})
 			);
@@ -1112,7 +1112,7 @@ class MyLocSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Include weather")
-			.setDesc("Add current weather from Open-Meteo")
+			.setDesc("Add current weather information")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.includeWeather)
@@ -1127,8 +1127,8 @@ class MyLocSettingTab extends PluginSettingTab {
 			.setDesc("Unit for temperature display")
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("celsius", "Celsius (\u00b0C)")
-					.addOption("fahrenheit", "Fahrenheit (\u00b0F)")
+					.addOption("celsius", "Celsius")
+					.addOption("fahrenheit", "Fahrenheit")
 					.setValue(this.plugin.settings.tempUnit)
 					.onChange(async (value: TempUnit) => {
 						this.plugin.settings.tempUnit = value;
@@ -1141,8 +1141,8 @@ class MyLocSettingTab extends PluginSettingTab {
 			.setDesc("Which map service to link to")
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("osm", "OpenStreetMap")
-					.addOption("google", "Google Maps")
+					.addOption("osm", "Openstreetmap")
+					.addOption("google", "Google maps")
 					.setValue(this.plugin.settings.mapProvider)
 					.onChange(async (value: MapProvider) => {
 						this.plugin.settings.mapProvider = value;
@@ -1155,7 +1155,6 @@ class MyLocSettingTab extends PluginSettingTab {
 			.setDesc("Language code for addresses (e.g., en, pl, de). Leave empty for default.")
 			.addText((text) =>
 				text
-					.setPlaceholder("en")
 					.setValue(this.plugin.settings.language)
 					.onChange(async (value) => {
 						this.plugin.settings.language = value.trim();
