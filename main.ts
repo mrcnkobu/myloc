@@ -710,7 +710,7 @@ export default class MyLocPlugin extends Plugin {
 		});
 	}
 
-	private async uniquePath(dir: string, basename: string): Promise<string> {
+	private uniquePath(dir: string, basename: string): string {
 		const path = `${dir}/${basename}.md`;
 		if (!this.app.vault.getAbstractFileByPath(path)) return path;
 		let n = 2;
@@ -837,7 +837,7 @@ export default class MyLocPlugin extends Plugin {
 		}
 
 		// Get unique path and create note
-		const notePath = await this.uniquePath(dir, filename);
+		const notePath = this.uniquePath(dir, filename);
 		const noteTitle = notePath.slice(notePath.lastIndexOf("/") + 1).replace(/\.md$/, "");
 		const notePathNoExt = notePath.replace(/\.md$/, "");
 
