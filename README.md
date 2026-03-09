@@ -11,6 +11,7 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 - **Saved places** — define places (home, work, gym) with GPS radius; nearby matches use the place name as address
 - **Multiple output formats** — full, compact, coordinates only, or custom template
 - **Timezone support** — auto-detects system timezone or manual selection
+- **Check-in / check-out** — track time spent at locations with configurable templates
 - **Works on mobile** — designed primarily for Android with GPS
 - **Desktop fallback** — uses IP-based geolocation when GPS unavailable
 
@@ -27,10 +28,14 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 
 ### Commands
 
-- **Insert location** — inserts formatted location at cursor (also available via ribbon icon)
+- **Insert location (quick)** — inserts formatted location at cursor using the default format (also available via ribbon icon)
+- **Insert location (choose format)** — gets the current location, then lets you choose the output format
 - **Insert location as frontmatter** — adds location to note's YAML frontmatter
 - **Update note location** — updates existing frontmatter location
 - **Save current location as place** — saves your current GPS position as a named place
+- **Check in** — records arrival at current location with timestamp
+- **Check out** — records departure with duration since check-in
+- **Clear active check-in** — resets persisted check-in state without writing a check-out entry
 
 ### Output Formats
 
@@ -64,6 +69,7 @@ Define named places with GPS coordinates and a detection radius. When any comman
 
 - **Place name** is used as the address in both inline output and frontmatter (skips reverse geocoding)
 - **Each place has its own template** using the same placeholder system as custom templates
+- **Optional per-place check-in/check-out templates** — override the global check-in and check-out templates for specific places (e.g., `🏠 Home · {time}`)
 - **Add places** via the "Save current location as place" command (captures GPS automatically) or manually in settings
 - **`{place}`** placeholder resolves to the place name when a saved place is active, empty string otherwise
 
@@ -80,19 +86,48 @@ weather: "12°C, Partly cloudy"
 ---
 ```
 
+### Check-in / Check-out
+
+Track time spent at locations. Two commands form a pair:
+
+- **Check in** — gets your location, records the arrival time, and appends formatted text to the current note
+- **Check out** — calculates the duration since check-in and appends departure text to the currently open note
+
+Check-in state persists across plugin reloads and app restarts.
+
+**Templates** use the same placeholders as custom templates. Saved places can define their own check-in and check-out templates — if set, they override the global defaults.
+
+**Check-out auto-selects the template** based on context:
+- **Same note** as check-in → uses the standard check-out template
+- **Different note** (e.g., next day's daily note) → uses the "different note" template, which supports extra placeholders for check-in context: `{checkinTime}`, `{checkinDate}`, `{checkinDatetime}`, `{checkinAddress}`, `{checkinPlace}`, `{checkinNote}`
+
+**Section heading** — if set, text is appended under a matching heading in the note. Leave empty to append at the end.
+
+**Duration formats:**
+- **Short** — `2h 15m`, `45m`, `3h`
+- **Clock** — `2:15`
+- **Decimal** — `2.25h`
+
 ## Settings
 
 | Setting | Description |
 |---------|-------------|
+| Privacy settings | Control reverse geocoding, weather lookups, and approximate IP fallback |
 | Format | Output format (full/compact/coords/custom) |
 | Custom templates | Templates with placeholders |
-| Saved places | Named locations with radius detection and per-place templates |
+| Saved places | Named locations with radius detection, per-place templates, and optional check-in/check-out templates |
 | Include timestamp | Add date/time to output |
 | Include weather | Add weather from Open-Meteo |
 | Temperature unit | Celsius or Fahrenheit |
 | Timezone | Auto-detect or manual selection |
 | Map provider | OpenStreetMap or Google Maps |
 | Address language | Language code for addresses (en, pl, de, etc.) |
+| Check-in template | Template for check-in text |
+| Check-out template | Template for check-out on the same note (supports `{duration}`) |
+| Check-out template (different note) | Template for check-out on a different note, with check-in context placeholders |
+| Section heading | Heading to append under (empty = end of note) |
+| Duration format | Short, clock, or decimal |
+| Get location on check-out | Fetch fresh location on check-out |
 | Frontmatter fields | Choose what to include in frontmatter |
 
 ## Development
@@ -149,15 +184,16 @@ myloc/
 
 ## Privacy
 
-- Location data is only sent to OpenStreetMap (for addresses) and Open-Meteo (for weather)
+- Reverse geocoding, weather, and approximate IP fallback can be enabled or disabled independently in plugin settings
+- Location data is sent only to the services required for the features you enable
 - No data is stored externally — everything stays in your vault
-- IP-based geolocation (desktop fallback) uses ip-api.com
+- IP-based geolocation (desktop fallback) uses `ipwho.is` over HTTPS when enabled
 
 ## Credits
 
 - [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/) — reverse geocoding
 - [Open-Meteo](https://open-meteo.com/) — weather data
-- [ip-api.com](http://ip-api.com/) — IP geolocation fallback
+- [ipwho.is](https://ipwho.is/) — IP geolocation fallback
 
 ## License
 

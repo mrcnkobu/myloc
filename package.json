@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "node esbuild.config.mjs production",
+		"lint": "eslint .",
+		"test": "node --import tsx --test tests/**/*.test.ts",
 		"deploy": "npm run build && bash -c 'source .env && cp main.js manifest.json \"$OBSIDIAN_PLUGIN_PATH\" && [ -n \"$OBSIDIAN_TEST_PLUGIN_PATH\" ] && mkdir -p \"$OBSIDIAN_TEST_PLUGIN_PATH\" && cp main.js manifest.json \"$OBSIDIAN_TEST_PLUGIN_PATH\" || true'"
 	},
 	"keywords": [
@@ -17,10 +19,16 @@
 	],
 	"license": "MIT",
 	"devDependencies": {
+		"@eslint/js": "^9.22.0",
 		"@types/node": "^20.11.0",
+		"@typescript-eslint/eslint-plugin": "^8.30.0",
+		"@typescript-eslint/parser": "^8.30.0",
 		"builtin-modules": "^3.3.0",
 		"esbuild": "^0.20.0",
+		"eslint": "^9.22.0",
+		"globals": "^16.0.0",
 		"obsidian": "latest",
+		"tsx": "^4.19.3",
 		"typescript": "^5.3.0"
 	}
 }
