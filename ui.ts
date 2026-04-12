@@ -229,7 +229,7 @@ export class MyLocSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Allow reverse geocoding")
-			.setDesc("Send coordinates to OpenStreetMap Nominatim to resolve an address")
+			.setDesc("Send coordinates to resolve an address")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.privacy.allowReverseGeocoding)
@@ -241,7 +241,7 @@ export class MyLocSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Allow weather lookup")
-			.setDesc("Send coordinates to Open-Meteo to fetch current weather")
+			.setDesc("Send coordinates to fetch current weather")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.privacy.allowWeather)
@@ -443,7 +443,7 @@ export class MyLocSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Saved places").setHeading();
 		containerEl.createEl("p", {
-			text: "Named locations with GPS radius detection. When nearby, you can use the place name instead of a raw address. Each place can have its own insertion, check-in, and check-out templates.",
+			text: "Named locations with radius detection. When nearby, you can use the place name instead of a raw address. Each place can have its own insertion, check-in, and check-out templates.",
 			cls: "setting-item-description",
 		});
 
@@ -706,7 +706,7 @@ export class MyLocSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Frontmatter").setHeading();
 		containerEl.createEl("p", {
-			text: "Choose which fields to include when inserting location as frontmatter. Location format is compatible with the Map View plugin.",
+			text: "Choose which fields to include when inserting location as frontmatter. The location field uses [lat, lon].",
 			cls: "setting-item-description",
 		});
 
