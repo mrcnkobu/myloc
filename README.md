@@ -10,6 +10,7 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 - **Frontmatter support** — compatible with Map View plugin for plotting notes on a map
 - **Saved places** — define places (home, work, gym) with GPS radius; nearby matches use the place name as address
 - **Multiple output formats** — full, compact, coordinates only, or custom template
+- **Location notes** — create new notes from templates with location data filled in, then insert a link at the cursor
 - **Timezone support** — auto-detects system timezone or manual selection
 - **Check-in / check-out** — track time spent at locations with configurable templates
 - **Works on mobile** — designed primarily for Android with GPS
@@ -19,7 +20,7 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 
 ### Manual Installation
 
-1. Download `main.js` and `manifest.json` from the latest release
+1. Download `main.js`, `manifest.json`, and `styles.css` from the latest release
 2. Create folder `<vault>/.obsidian/plugins/myloc/`
 3. Copy the files into the folder
 4. Enable the plugin in Settings → Community Plugins
@@ -32,6 +33,7 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 - **Insert location (choose format)** — gets the current location, then lets you choose the output format
 - **Insert location as frontmatter** — adds location to note's YAML frontmatter
 - **Update note location** — updates existing frontmatter location
+- **Insert location as new note** — creates a note from a configured template and inserts a link to it
 - **Save current location as place** — saves your current GPS position as a named place
 - **Check in** — records arrival at current location with timestamp
 - **Check out** — records departure with duration since check-in
@@ -60,8 +62,10 @@ Insert your current location into Obsidian notes. GPS coordinates, addresses, we
 - `{lat}`, `{lon}`, `{coords}` — coordinates
 - `{address}`, `{place}`, `{city}`, `{country}` — address parts
 - `{mapUrl}`, `{mapLink}` — map links
-- `{date}`, `{time}`, `{datetime}` — timestamp
+- `{date}`, `{time}`, `{datetime}`, `{date:FORMAT}` — timestamp
 - `{weather}`, `{temp}` — weather info
+
+`{date:FORMAT}` supports `yyyy`, `yy`, `MM`, `M`, `dd`, `d`, `HH`, `H`, `mm`, `m`, `ss`, and `s`.
 
 ### Saved Places
 
@@ -72,6 +76,23 @@ Define named places with GPS coordinates and a detection radius. When any comman
 - **Optional per-place check-in/check-out templates** — override the global check-in and check-out templates for specific places (e.g., `🏠 Home · {time}`)
 - **Add places** via the "Save current location as place" command (captures GPS automatically) or manually in settings
 - **`{place}`** placeholder resolves to the place name when a saved place is active, empty string otherwise
+
+### Location Notes
+
+Location notes create a new note from a vault template and insert a link to the created note at the cursor.
+
+Configure one or more location note presets in settings:
+
+- **Directory** — vault folder for created notes, with placeholders supported (for example `Locations/{date:yyyy/MM}`)
+- **Filename template** — generated note filename before the `.md` extension (for example `location_{date:yyyy-MM-dd}`)
+- **Template file** — vault path to the note template to read (for example `Templates/location.md`)
+- **Link template** — text inserted in the active note after creation (for example `[[{notePath}]]`)
+
+Location note templates support all standard placeholders plus:
+
+- `{date:FORMAT}` — formatted date/time for directories, filenames, and content
+- `{notePath}` — created note path without `.md`
+- `{noteTitle}` — created note filename without `.md`
 
 ### Frontmatter
 
@@ -116,6 +137,7 @@ Check-in state persists across plugin reloads and app restarts.
 | Format | Output format (full/compact/coords/custom) |
 | Custom templates | Templates with placeholders |
 | Saved places | Named locations with radius detection, per-place templates, and optional check-in/check-out templates |
+| Location notes | Note creation presets with directory, filename, template file, and inserted link template |
 | Include timestamp | Add date/time to output |
 | Include weather | Add weather from Open-Meteo |
 | Temperature unit | Celsius or Fahrenheit |
@@ -160,13 +182,16 @@ OBSIDIAN_TEST_PLUGIN_PATH=/path/to/test/vault/.obsidian/plugins/myloc/  # option
 |---------|-------------|
 | `npm run dev` | Development build with sourcemaps |
 | `npm run build` | Production build (minified) |
+| `npm run lint` | Run ESLint |
+| `npm run test` | Run unit tests |
 | `npm run deploy` | Build and copy to vault(s) |
 
 ### Testing
 
-1. Run `npm run deploy`
-2. Open Obsidian and enable the plugin in Settings → Community Plugins
-3. Reload the plugin after changes: `Ctrl+P` → "Reload app without saving"
+1. Run `npm run lint` and `npm run test`
+2. Run `npm run deploy`
+3. Open Obsidian and enable the plugin in Settings → Community Plugins
+4. Reload the plugin after changes: `Ctrl+P` → "Reload app without saving"
 
 For mobile testing via Syncthing or similar, `npm run deploy` copies actual files (symlinks don't sync).
 
@@ -174,12 +199,20 @@ For mobile testing via Syncthing or similar, `npm run deploy` copies actual file
 
 ```
 myloc/
-├── main.ts           # Plugin source
-├── manifest.json     # Plugin metadata
-├── package.json      # Dependencies & scripts
-├── esbuild.config.mjs # Build configuration
-├── .env.example      # Environment template
-└── .env              # Local config (gitignored)
+├── main.ts                    # Plugin entry point and command wiring
+├── location-service.ts        # Location, geocoding, weather, places, and template helpers
+├── note-service.ts            # Frontmatter, note path, and heading append helpers
+├── ui.ts                      # Modals and settings tab
+├── types.ts                   # Shared types and defaults
+├── utils.ts                   # Date, duration, distance, and filename utilities
+├── tests/                     # Unit tests
+├── manifest.json              # Plugin metadata
+├── package.json               # Dependencies and scripts
+├── esbuild.config.mjs         # Build configuration
+├── eslint.config.mjs          # ESLint configuration
+├── styles.css                 # Plugin styles
+├── .env.example               # Environment template
+└── .env                       # Local config (gitignored)
 ```
 
 ## Privacy
