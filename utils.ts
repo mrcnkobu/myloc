@@ -1,5 +1,3 @@
-import { DurationFormat } from "./types";
-
 export function getSystemTimezone(): string {
 	return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
@@ -24,7 +22,6 @@ export function formatDatePattern(date: Date, pattern: string, timezone: string)
 	const day = get({ day: "2-digit" });
 	const hour = get({ hour: "2-digit", hour12: false });
 	const minute = get({ minute: "2-digit" });
-	const second = get({ second: "2-digit" });
 
 	parts["yyyy"] = year;
 	parts["yy"] = year.slice(-2);
@@ -36,11 +33,9 @@ export function formatDatePattern(date: Date, pattern: string, timezone: string)
 	parts["H"] = String(parseInt(hour));
 	parts["mm"] = minute.padStart(2, "0");
 	parts["m"] = String(parseInt(minute));
-	parts["ss"] = second.padStart(2, "0");
-	parts["s"] = String(parseInt(second));
 
 	let result = pattern;
-	for (const token of ["yyyy", "yy", "MM", "M", "dd", "d", "HH", "H", "mm", "m", "ss", "s"]) {
+	for (const token of ["yyyy", "yy", "MM", "M", "dd", "d", "HH", "H", "mm", "m"]) {
 		result = result.split(token).join(parts[token]);
 	}
 	return result;
@@ -50,22 +45,14 @@ export function sanitizeFilename(name: string): string {
 	return name.replace(/[/\\:*?"<>|]/g, "");
 }
 
-export function formatDuration(ms: number, format: DurationFormat): string {
+export function formatDuration(ms: number): string {
 	const totalMinutes = Math.round(ms / 60000);
 	const hours = Math.floor(totalMinutes / 60);
 	const minutes = totalMinutes % 60;
 
-	switch (format) {
-		case "clock":
-			return `${hours}:${String(minutes).padStart(2, "0")}`;
-		case "decimal":
-			return `${(totalMinutes / 60).toFixed(2)}h`;
-		case "short":
-		default:
-			if (hours === 0) return `${minutes}m`;
-			if (minutes === 0) return `${hours}h`;
-			return `${hours}h ${minutes}m`;
-	}
+	if (hours === 0) return `${minutes}m`;
+	if (minutes === 0) return `${hours}h`;
+	return `${hours}h ${minutes}m`;
 }
 
 export function generateId(): string {

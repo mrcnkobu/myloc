@@ -1,16 +1,43 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { LocationService } from "../location-service";
-import { DEFAULT_SETTINGS, LocationResult, SavedPlace } from "../types";
+import { createRequire } from "node:module";
+import { DEFAULT_SETTINGS } from "../types";
+import type { PlaceRecord } from "../types";
 
-function createLocationService(savedPlaces: SavedPlace[] = []) {
+const require = createRequire(import.meta.url);
+const { LocationService } = require("../location-service.ts") as typeof import("../location-service");
+
+function createLocationService(places: PlaceRecord[] = []) {
 	const settings = {
 		...DEFAULT_SETTINGS,
-		savedPlaces,
+		placesRoot: "Places",
+		timelineFolderName: "_timeline",
 	};
 
+	const markdownFiles = places.map((place) => ({ path: place.path }));
+	const frontmatterByPath = new Map(
+		places.map((place) => [place.path, {
+			"myloc-type": "place",
+			name: place.name,
+			inline_name: place.inlineName,
+			inline_text: place.inlineText,
+			location: [place.latitude, place.longitude],
+			radius: place.radius,
+			tags: place.tags,
+		}])
+	);
+
 	return new LocationService(
-		{} as never,
+		{
+			vault: {
+				getMarkdownFiles: () => markdownFiles,
+				getAbstractFileByPath: () => null,
+				createFolder: async () => undefined,
+			},
+			metadataCache: {
+				getFileCache: (file: { path: string }) => ({ frontmatter: frontmatterByPath.get(file.path) }),
+			},
+		} as never,
 		() => settings,
 		() => ({
 			date: "2026-03-09",
@@ -24,7 +51,6 @@ function createLocationService(savedPlaces: SavedPlace[] = []) {
 			requestUrl: (async () => {
 				throw new Error("requestUrl should not be called in this test");
 			}) as never,
-			openSavedPlacePicker: async () => null,
 		}
 	);
 }
@@ -33,49 +59,36 @@ test("normalizeVaultPath trims slashes and rejects parent traversal", () => {
 	const service = createLocationService();
 
 	assert.equal(service.normalizeVaultPath("/Trips/2026/"), "Trips/2026");
-	assert.throws(() => service.normalizeVaultPath("../Trips"), /invalid path segments/i);
+	assert.throws(() => service.normalizeVaultPath("../Trips"), /invalid segments/i);
 });
 
-test("buildTemplateContext fills address and map placeholders consistently", () => {
+test("getPlaceFilePath resolves under the configured places root", () => {
 	const service = createLocationService();
-	const location: LocationResult = {
-		latitude: 52.2297,
-		longitude: 21.0122,
-		accuracy: 12,
-		isApproximate: true,
-	};
 
-	const context = service.buildTemplateContext(location, {
-		address: { display: "Warsaw, Poland", city: "Warsaw", country: "Poland" },
-		weather: { temperature: 18, unit: "°C", description: "Clear" },
-	});
-
-	assert.equal(context.coords, "52.229700, 21.012200 (approximate)");
-	assert.equal(context.address, "Warsaw, Poland");
-	assert.equal(context.city, "Warsaw");
-	assert.equal(context.country, "Poland");
-	assert.match(context.mapUrl, /openstreetmap/);
-	assert.equal(context.weather, "18°C, Clear");
-	assert.equal(context.temp, "18°C");
+	assert.equal(service.getPlaceFilePath("France/Paris/Pantheon"), "Places/France/Paris/Pantheon.md");
 });
 
 test("findMatchingPlaces returns nearby places ordered by distance", () => {
-	const places: SavedPlace[] = [
+	const places: PlaceRecord[] = [
 		{
-			id: "a",
+			path: "Places/Near.md",
 			name: "Near",
+			inlineName: "",
+			inlineText: "",
 			latitude: 52.22971,
 			longitude: 21.01221,
 			radius: 300,
-			template: "{place}",
+			tags: [],
 		},
 		{
-			id: "b",
+			path: "Places/Farther.md",
 			name: "Farther",
+			inlineName: "",
+			inlineText: "",
 			latitude: 52.2305,
 			longitude: 21.0135,
 			radius: 300,
-			template: "{place}",
+			tags: [],
 		},
 	];
 
@@ -89,4 +102,10 @@ test("findMatchingPlaces returns nearby places ordered by distance", () => {
 
 	assert.deepEqual(matches.map((match) => match.place.name), ["Near", "Farther"]);
 	assert.ok(matches[0].distance <= matches[1].distance);
+});
+
+test("getTimelineFilePath uses monthly files inside the timeline folder", () => {
+	const service = createLocationService();
+
+	assert.equal(service.getTimelineFilePath(new Date("2026-06-20T12:00:00Z")), "Places/_timeline/2026-06.md");
 });

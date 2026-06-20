@@ -1,28 +1,22 @@
-import type { App } from "obsidian";
+import type { App, CachedMetadata, TFile } from "obsidian";
 import {
-	AddressResult,
-	CacheEntry,
-	CheckInState,
-	LocationResult,
-	MyLocSettings,
-	ResolvedLocationDetails,
-	SavedPlace,
-	TemplateContext,
-	WEATHER_CODES,
-	WeatherResult,
+	type AddressResult,
+	type CacheEntry,
+	type LocationResult,
+	type MyLocSettings,
+	type PlaceMatch,
+	type PlaceRecord,
 } from "./types";
-import { formatDatePattern, haversineDistance } from "./utils";
+import { formatDatePattern, haversineDistance, sanitizeFilename } from "./utils";
 
 interface LocationServiceDeps {
 	isMobile: boolean;
 	requestUrl: typeof import("obsidian").requestUrl;
-	openSavedPlacePicker: (matches: { place: SavedPlace; distance: number }[]) => Promise<SavedPlace | null>;
 }
 
-export class LocationService {
+class LocationService {
 	private locationCache: CacheEntry<LocationResult> | null = null;
 	private reverseGeocodeCache = new Map<string, CacheEntry<AddressResult>>();
-	private weatherCache = new Map<string, CacheEntry<WeatherResult>>();
 	private static readonly LOCATION_CACHE_TTL_MS = 30000;
 	private static readonly LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -34,13 +28,15 @@ export class LocationService {
 		private deps: LocationServiceDeps
 	) {}
 
-	applyTemplate(template: string, values: Record<string, string>): string {
+	formatInlineTemplate(template: string, values: Record<string, string>): string {
+		return template.replace(/\{(\w+)\}/g, (_, key) => values[key] || "");
+	}
+
+	formatPathTemplate(template: string): string {
 		const tz = this.getTimezone();
-		let result = template.replace(/\{date:([^}]+)\}/g, (_, pattern) =>
+		return template.replace(/\{date:([^}]+)\}/g, (_, pattern) =>
 			formatDatePattern(new Date(), pattern, tz)
 		);
-		result = result.replace(/\{(\w+)\}/g, (_, key) => values[key] || "");
-		return result;
 	}
 
 	getMapUrl(lat: number, lon: number): string {
@@ -55,122 +51,15 @@ export class LocationService {
 		return includeApproximate && location.isApproximate ? `${coords} (approximate)` : coords;
 	}
 
-	async maybeGetWeatherForTemplate(location: LocationResult, template: string): Promise<WeatherResult | null> {
-		if (!/\{(weather|temp)\}/.test(template)) {
-			return null;
-		}
-
-		try {
-			return await this.getWeather(location.latitude, location.longitude);
-		} catch {
-			return null;
-		}
-	}
-
-	buildTemplateContext(
-		location: LocationResult,
-		options: {
-			address?: AddressResult | null;
-			placeName?: string;
-			weather?: WeatherResult | null;
-			includeApproximate?: boolean;
-		} = {}
-	): TemplateContext {
-		const address = options.address;
-		const placeName = options.placeName || "";
-		const weather = options.weather || null;
-		const mapUrl = this.getMapUrl(location.latitude, location.longitude);
-		const { date, time, datetime } = this.formatDateTime(new Date());
-		const weatherStr = weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : "";
-		const tempStr = weather ? `${weather.temperature}${weather.unit}` : "";
-
-		return {
-			lat: location.latitude.toFixed(6),
-			lon: location.longitude.toFixed(6),
-			coords: this.getCoordsString(location, options.includeApproximate),
-			address: address?.display || placeName,
-			place: placeName,
-			city: address?.city || "",
-			country: address?.country || "",
-			mapUrl,
-			mapLink: `[Open in Map](${mapUrl})`,
-			date,
-			time,
-			datetime,
-			weather: weatherStr,
-			temp: tempStr,
-		};
-	}
-
-	async resolveCurrentLocationDetails(fallback: CheckInState): Promise<ResolvedLocationDetails> {
-		const fallbackLocation: LocationResult = {
-			latitude: fallback.latitude,
-			longitude: fallback.longitude,
-			accuracy: 0,
-			isApproximate: false,
-		};
-
-		if (!this.getSettings().checkin.checkoutLocation) {
-			return {
-				location: fallbackLocation,
-				address: fallback.address || "",
-				city: fallback.city || "",
-				country: fallback.country || "",
-				placeName: fallback.place || "",
-			};
-		}
-
-		try {
-			const location = await this.getLocation();
-			const place = await this.resolvePlace(location);
-			if (place) {
-				return {
-					location,
-					address: place.name,
-					city: "",
-					country: "",
-					placeName: place.name,
-				};
-			}
-
-			try {
-				const addr = await this.reverseGeocode(location.latitude, location.longitude);
-				return {
-					location,
-					address: addr.display,
-					city: addr.city || "",
-					country: addr.country || "",
-					placeName: "",
-				};
-			} catch {
-				return {
-					location,
-					address: "",
-					city: "",
-					country: "",
-					placeName: "",
-				};
-			}
-		} catch {
-			return {
-				location: fallbackLocation,
-				address: fallback.address || "",
-				city: fallback.city || "",
-				country: fallback.country || "",
-				placeName: fallback.place || "",
-			};
-		}
-	}
-
 	normalizeVaultPath(path: string): string {
 		const normalized = path.replace(/\\/g, "/").trim().replace(/^\/+|\/+$/g, "");
 		if (!normalized) {
-			throw new Error("Location note directory cannot be empty");
+			throw new Error("Path cannot be empty");
 		}
 
 		const segments = normalized.split("/").map((segment) => segment.trim());
 		if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
-			throw new Error("Location note directory contains invalid path segments");
+			throw new Error("Path contains invalid segments");
 		}
 
 		return segments.join("/");
@@ -186,6 +75,56 @@ export class LocationService {
 				await this.app.vault.createFolder(currentPath);
 			}
 		}
+	}
+
+	getPlacesRoot(): string {
+		return this.normalizeVaultPath(this.getSettings().placesRoot);
+	}
+
+	getTimelineFolder(): string {
+		return this.normalizeVaultPath(`${this.getPlacesRoot()}/${this.getSettings().timelineFolderName}`);
+	}
+
+	getTimelineFilePath(date: Date): string {
+		const month = formatDatePattern(date, "yyyy-MM", this.getTimezone());
+		return `${this.getTimelineFolder()}/${month}.md`;
+	}
+
+	getPlaceFilePath(relativePath: string): string {
+		const normalized = this.normalizeVaultPath(relativePath);
+		const segments = normalized.split("/").map((segment) => sanitizeFilename(segment));
+		if (segments.some((segment) => !segment)) {
+			throw new Error("Place path contains an empty file or folder name");
+		}
+
+		const fullPath = `${this.getPlacesRoot()}/${segments.join("/")}`;
+		return fullPath.endsWith(".md") ? fullPath : `${fullPath}.md`;
+	}
+
+	parsePlaceFile(file: TFile): PlaceRecord | null {
+		const cache = this.app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		return this.placeFromFrontmatter(file.path, frontmatter);
+	}
+
+	getAllPlaces(): PlaceRecord[] {
+		const root = `${this.getPlacesRoot()}/`;
+		const timelineFolder = `${this.getTimelineFolder()}/`;
+		return this.app.vault.getMarkdownFiles()
+			.filter((file) => file.path.startsWith(root) && !file.path.startsWith(timelineFolder))
+			.map((file) => this.parsePlaceFile(file))
+			.filter((place): place is PlaceRecord => place !== null)
+			.sort((a, b) => a.path.localeCompare(b.path));
+	}
+
+	findMatchingPlaces(location: LocationResult, places = this.getAllPlaces()): PlaceMatch[] {
+		return places
+			.map((place) => ({
+				place,
+				distance: haversineDistance(location.latitude, location.longitude, place.latitude, place.longitude),
+			}))
+			.filter((match) => match.distance <= match.place.radius)
+			.sort((a, b) => a.distance - b.distance);
 	}
 
 	async getLocation(): Promise<LocationResult> {
@@ -219,21 +158,12 @@ export class LocationService {
 			return location;
 		}
 
-		try {
-			const location = await this.getGPSLocation();
-			this.locationCache = {
-				value: location,
-				expiresAt: Date.now() + LocationService.LOCATION_CACHE_TTL_MS,
-			};
-			return location;
-		} catch {
-			throw new Error("Unable to get device location. Enable approximate IP fallback in settings to allow desktop lookup.");
-		}
+		throw new Error("Unable to get device location. Enable approximate IP fallback in settings to allow desktop lookup.");
 	}
 
 	async reverseGeocode(lat: number, lon: number): Promise<AddressResult> {
 		if (!this.getSettings().privacy.allowReverseGeocoding) {
-			throw new Error("Reverse geocoding is disabled in privacy settings");
+			throw new Error("Reverse geocoding is disabled in settings");
 		}
 
 		const cacheKey = this.getCacheKey(lat, lon);
@@ -268,50 +198,37 @@ export class LocationService {
 		}, LocationService.LOOKUP_CACHE_TTL_MS);
 	}
 
-	async getWeather(lat: number, lon: number): Promise<WeatherResult> {
-		if (!this.getSettings().privacy.allowWeather) {
-			throw new Error("Weather lookup is disabled in privacy settings");
+	private placeFromFrontmatter(path: string, frontmatter?: CachedMetadata["frontmatter"]): PlaceRecord | null {
+		const type = frontmatter?.["myloc-type"];
+		const name = frontmatter?.name;
+		const location = frontmatter?.location;
+		const radius = frontmatter?.radius;
+
+		if (type !== "place" || typeof name !== "string" || !Array.isArray(location) || location.length < 2) {
+			return null;
 		}
 
-		const settings = this.getSettings();
-		const cacheKey = `${this.getCacheKey(lat, lon)}:${settings.tempUnit}`;
-		const cachedWeather = this.getCachedValue(this.weatherCache.get(cacheKey));
-		if (cachedWeather) {
-			return cachedWeather;
+		const latitude = Number(location[0]);
+		const longitude = Number(location[1]);
+		const numericRadius = Number(radius);
+		if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(numericRadius)) {
+			return null;
 		}
 
-		const unit = settings.tempUnit === "fahrenheit" ? "fahrenheit" : "celsius";
-		const response = await this.deps.requestUrl({
-			url: `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&temperature_unit=${unit}`,
-			method: "GET",
-		});
+		const tags = Array.isArray(frontmatter?.tags)
+			? frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
+			: [];
 
-		const data = response.json;
-		const current = data.current_weather;
-		const symbol = settings.tempUnit === "fahrenheit" ? "\u00b0F" : "\u00b0C";
-
-		return this.setCachedValue(this.weatherCache, cacheKey, {
-			temperature: Math.round(current.temperature),
-			unit: symbol,
-			description: WEATHER_CODES[current.weathercode] || "Unknown",
-		}, LocationService.LOOKUP_CACHE_TTL_MS);
-	}
-
-	findMatchingPlaces(location: LocationResult): { place: SavedPlace; distance: number }[] {
-		return this.getSettings().savedPlaces
-			.map((place) => ({
-				place,
-				distance: haversineDistance(location.latitude, location.longitude, place.latitude, place.longitude),
-			}))
-			.filter((m) => m.distance <= m.place.radius)
-			.sort((a, b) => a.distance - b.distance);
-	}
-
-	async resolvePlace(location: LocationResult): Promise<SavedPlace | null> {
-		const matches = this.findMatchingPlaces(location);
-		if (matches.length === 0) return null;
-		if (matches.length === 1) return matches[0].place;
-		return this.deps.openSavedPlacePicker(matches);
+		return {
+			path,
+			name,
+			inlineName: typeof frontmatter?.inline_name === "string" ? frontmatter.inline_name.trim() : "",
+			inlineText: typeof frontmatter?.inline_text === "string" ? frontmatter.inline_text : "",
+			latitude,
+			longitude,
+			radius: numericRadius,
+			tags,
+		};
 	}
 
 	private getCacheKey(lat: number, lon: number): string {
@@ -375,10 +292,6 @@ export class LocationService {
 	}
 
 	private async getIPLocation(): Promise<LocationResult> {
-		if (!this.getSettings().privacy.allowIpFallback) {
-			throw new Error("Approximate IP geolocation is disabled in privacy settings");
-		}
-
 		const response = await this.deps.requestUrl({
 			url: "https://ipwho.is/",
 			method: "GET",
@@ -397,3 +310,6 @@ export class LocationService {
 		};
 	}
 }
+
+export { LocationService };
+export default LocationService;

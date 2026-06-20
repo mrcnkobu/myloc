@@ -1,82 +1,86 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { NoteService } from "../note-service";
-import { LocationResult } from "../types";
+import { createRequire } from "node:module";
+import type { PlaceRecord } from "../types";
+
+const require = createRequire(import.meta.url);
+const { NoteService } = require("../note-service.ts") as typeof import("../note-service");
 
 function createNoteServiceWithContent(content: string) {
 	let currentContent = content;
-	let frontmatterStore: Record<string, unknown> = {};
+	const files = new Map<string, { path: string; stat: object }>();
 	const vault = {
 		read: async () => currentContent,
 		modify: async (_file: unknown, nextContent: string) => {
 			currentContent = nextContent;
 		},
-		getAbstractFileByPath: (path: string): { path: string } | null => {
-			void path;
-			return null;
+		getAbstractFileByPath: (path: string): { path: string; stat: object } | null => {
+			return files.get(path) || null;
 		},
-	};
-
-	const app = {
-		vault,
-		fileManager: {
-			processFrontMatter: async (_file: unknown, updater: (frontmatter: Record<string, unknown>) => void) => {
-				updater(frontmatterStore);
-			},
+		create: async (path: string, fileContent: string) => {
+			currentContent = fileContent;
+			const file = { path, stat: {} };
+			files.set(path, file);
+			return file;
 		},
 	};
 
 	return {
-		service: new NoteService(app as never),
+		service: new NoteService({ vault } as never),
 		getContent: () => currentContent,
-		getFrontmatter: () => frontmatterStore,
 		setExistingPaths: (paths: string[]) => {
-			vault.getAbstractFileByPath = (path: string) => (paths.includes(path) ? { path } : null);
+			files.clear();
+			for (const path of paths) {
+				files.set(path, { path, stat: {} });
+			}
 		},
 	};
 }
 
 test("uniquePath appends a counter when the target path already exists", () => {
 	const { service, setExistingPaths } = createNoteServiceWithContent("");
-	setExistingPaths(["Trips/entry.md", "Trips/entry (2).md"]);
+	setExistingPaths(["Places/entry.md", "Places/entry (2).md"]);
 
-	assert.equal(service.uniquePath("Trips", "entry"), "Trips/entry (3).md");
+	assert.equal(service.uniquePath("Places", "entry"), "Places/entry (3).md");
 });
 
 test("appendUnderHeading inserts text before the next heading in the same section", async () => {
-	const { service, getContent } = createNoteServiceWithContent("# Log\n\n## Check-ins\nexisting\n\n## Next\nrest\n");
+	const { service, getContent } = createNoteServiceWithContent("# Log\n\n## Entries\nexisting\n\n## Next\nrest\n");
 
-	await service.appendUnderHeading({} as never, "Check-ins", "new line");
+	await service.appendUnderHeading({} as never, "Entries", "new line");
 
-	assert.equal(getContent(), "# Log\n\n## Check-ins\nexisting\n\nnew line\n## Next\nrest\n");
+	assert.equal(getContent(), "# Log\n\n## Entries\nexisting\n\nnew line\n## Next\nrest\n");
 });
 
-test("upsertFrontmatterLocation writes only the requested fields", async () => {
-	const { service, getFrontmatter } = createNoteServiceWithContent("");
-	const location: LocationResult = {
-		latitude: 52.2297,
-		longitude: 21.0122,
-		accuracy: 10,
-		isApproximate: false,
+test("appendUnderHeading creates the heading when it is missing", async () => {
+	const { service, getContent } = createNoteServiceWithContent("# Log\n");
+
+	await service.appendUnderHeading({} as never, "Entries", "- item");
+
+	assert.equal(getContent(), "# Log\n## Entries\n- item\n");
+});
+
+test("buildPlaceNoteContent creates frontmatter, details and a log section", () => {
+	const { service } = createNoteServiceWithContent("");
+	const place: PlaceRecord = {
+		path: "Places/France/Paris/Pantheon.md",
+		name: "Pantheon",
+		inlineName: "Latin Quarter",
+		inlineText: "At {place}",
+		latitude: 48.846222,
+		longitude: 2.346414,
+		radius: 120,
+		tags: ["paris", "history"],
 	};
 
-	const status = await service.upsertFrontmatterLocation({} as never, {
-		update: false,
-		location,
-		fields: {
-			location: true,
-			address: true,
-			datetime: true,
-			weather: false,
-		},
-		address: "Warsaw",
-		datetime: "2026-03-09T12:00:00",
+	const content = service.buildPlaceNoteContent(place, {
+		address: "Rue Soufflot, Paris, France",
+		mapUrl: "https://example.com",
 	});
 
-	assert.equal(status, "inserted");
-	assert.deepEqual(getFrontmatter(), {
-		location: [52.2297, 21.0122],
-		address: "Warsaw",
-		datetime: "2026-03-09T12:00:00",
-	});
+	assert.match(content, /myloc-type: place/);
+	assert.match(content, /inline_name: "Latin Quarter"/);
+	assert.match(content, /inline_text: "At \{place\}"/);
+	assert.match(content, /## Details/);
+	assert.match(content, /## Log/);
 });

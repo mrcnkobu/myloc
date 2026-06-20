@@ -1,111 +1,79 @@
-export type MapProvider = "osm" | "google";
 export type TempUnit = "celsius" | "fahrenheit";
-export type DurationFormat = "short" | "clock" | "decimal";
 
-export interface NamedTemplate {
-	id: string;
+export interface PlaceFrontmatter {
+	["myloc-type"]: "place";
 	name: string;
-	template: string;
+	inline_name?: string;
+	inline_text?: string;
+	location: [number, number];
+	radius: number;
+	tags?: string[];
 }
 
-export interface SavedPlace {
-	id: string;
+export interface PlaceRecord {
+	path: string;
 	name: string;
+	inlineName: string;
+	inlineText: string;
 	latitude: number;
 	longitude: number;
 	radius: number;
-	template: string;
-	checkinTemplate?: string;
-	checkoutTemplate?: string;
+	tags: string[];
 }
 
-export interface LocationNote {
+export interface ActivePlaceSession {
 	id: string;
-	name: string;
-	directory: string;
-	filenameTemplate: string;
-	templatePath: string;
-	linkTemplate: string;
+	placePath: string;
+	placeName: string;
+	inlineName: string;
+	startedAt: number;
+	startedLatitude: number;
+	startedLongitude: number;
 }
 
-export interface CheckInState {
-	timestamp: number;
-	latitude: number;
-	longitude: number;
-	address?: string;
-	city?: string;
-	country?: string;
-	place?: string;
-	placeId?: string;
-	notePath?: string;
-}
-
-export interface CheckInSettings {
-	checkinTemplate: string;
-	checkoutTemplate: string;
-	checkoutTemplateOther: string;
-	heading: string;
-	durationFormat: DurationFormat;
-	checkoutLocation: boolean;
-}
-
-export interface FrontmatterFields {
-	location: boolean;
-	address: boolean;
-	datetime: boolean;
-	weather: boolean;
+export interface InlineTemplateContext {
+	place: string;
+	placeName: string;
+	inlineName: string;
+	placeLink: string;
+	date: string;
+	time: string;
+	datetime: string;
+	duration: string;
 }
 
 export interface PrivacySettings {
 	allowReverseGeocoding: boolean;
-	allowWeather: boolean;
 	allowIpFallback: boolean;
 }
 
 export interface MyLocSettings {
-	format: string;
-	customTemplates: NamedTemplate[];
-	savedPlaces: SavedPlace[];
-	mapProvider: MapProvider;
+	placesRoot: string;
+	timelineFolderName: string;
+	defaultRadius: number;
+	inlineLoggingDefault: boolean;
+	inlineLoginTemplate: string;
+	inlineLogoutTemplate: string;
 	language: string;
 	timezone: string;
+	mapProvider: "osm" | "google";
 	tempUnit: TempUnit;
-	includeTimestamp: boolean;
-	includeWeather: boolean;
-	locationNotes: LocationNote[];
-	frontmatterFields: FrontmatterFields;
-	checkin: CheckInSettings;
 	privacy: PrivacySettings;
 }
 
 export const DEFAULT_SETTINGS: MyLocSettings = {
-	format: "full",
-	customTemplates: [],
-	savedPlaces: [],
-	locationNotes: [],
-	mapProvider: "osm",
+	placesRoot: "Places",
+	timelineFolderName: "_timeline",
+	defaultRadius: 200,
+	inlineLoggingDefault: false,
+	inlineLoginTemplate: "📍 Logged in: {place} · {time} · {placeLink}",
+	inlineLogoutTemplate: "📍 Logged out: {place} · {time} · {duration} · {placeLink}",
 	language: "",
 	timezone: "",
+	mapProvider: "osm",
 	tempUnit: "celsius",
-	includeTimestamp: false,
-	includeWeather: false,
-	frontmatterFields: {
-		location: true,
-		address: false,
-		datetime: false,
-		weather: false,
-	},
-	checkin: {
-		checkinTemplate: "📍 Checked in: {address} · {time}",
-		checkoutTemplate: "📍 Checked out: {time} · {duration}",
-		checkoutTemplateOther: "📍 Checked out: {time} · {duration} (checked in: {checkinAddress}, {checkinTime})",
-		heading: "",
-		durationFormat: "short",
-		checkoutLocation: false,
-	},
 	privacy: {
 		allowReverseGeocoding: true,
-		allowWeather: true,
 		allowIpFallback: false,
 	},
 };
@@ -123,55 +91,21 @@ export interface AddressResult {
 	country?: string;
 }
 
-export interface WeatherResult {
-	temperature: number;
-	unit: string;
-	description: string;
-}
-
-export interface FormatOption {
-	id: string;
-	name: string;
-	description: string;
-}
-
 export interface CacheEntry<T> {
 	value: T;
 	expiresAt: number;
 }
 
-export interface TemplateContext {
-	[key: string]: string;
-	lat: string;
-	lon: string;
-	coords: string;
-	address: string;
-	place: string;
-	city: string;
-	country: string;
-	mapUrl: string;
-	mapLink: string;
-	date: string;
-	time: string;
-	datetime: string;
-	weather: string;
-	temp: string;
-}
-
-export interface ResolvedLocationDetails {
-	location: LocationResult;
-	address: string;
-	city: string;
-	country: string;
-	placeName: string;
+export interface PlaceMatch {
+	place: PlaceRecord;
+	distance: number;
 }
 
 export interface MyLocPluginUiApi {
 	settings: MyLocSettings;
-	activeCheckIn: CheckInState | null;
+	activeSessions: ActivePlaceSession[];
 	saveSettings(): Promise<void>;
 	formatDateTime(date: Date): { date: string; time: string; datetime: string; iso: string };
-	clearActiveCheckIn(noticeText?: string): Promise<void>;
 }
 
 export const TIMEZONES: string[] = [
@@ -206,37 +140,4 @@ export const TIMEZONES: string[] = [
 	"Europe/Warsaw",
 	"Pacific/Auckland",
 	"Pacific/Honolulu",
-];
-
-export const WEATHER_CODES: Record<number, string> = {
-	0: "Clear",
-	1: "Mostly clear",
-	2: "Partly cloudy",
-	3: "Overcast",
-	45: "Foggy",
-	48: "Foggy",
-	51: "Light drizzle",
-	53: "Drizzle",
-	55: "Dense drizzle",
-	61: "Light rain",
-	63: "Rain",
-	65: "Heavy rain",
-	71: "Light snow",
-	73: "Snow",
-	75: "Heavy snow",
-	77: "Snow grains",
-	80: "Light showers",
-	81: "Showers",
-	82: "Heavy showers",
-	85: "Light snow showers",
-	86: "Snow showers",
-	95: "Thunderstorm",
-	96: "Thunderstorm with hail",
-	99: "Thunderstorm with hail",
-};
-
-export const BUILTIN_FORMATS: FormatOption[] = [
-	{ id: "full", name: "Full", description: "Address, coordinates, map link" },
-	{ id: "compact", name: "Compact", description: "Address with coordinates" },
-	{ id: "coords", name: "Coordinates only", description: "GPS coordinates" },
 ];

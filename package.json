@@ -8,7 +8,9 @@
 		"build": "node esbuild.config.mjs production",
 		"lint": "eslint .",
 		"test": "node --import tsx --test tests/**/*.test.ts",
-		"deploy": "npm run build && bash -c 'source .env && cp main.js manifest.json \"$OBSIDIAN_PLUGIN_PATH\" && [ -n \"$OBSIDIAN_TEST_PLUGIN_PATH\" ] && mkdir -p \"$OBSIDIAN_TEST_PLUGIN_PATH\" && cp main.js manifest.json \"$OBSIDIAN_TEST_PLUGIN_PATH\" || true'"
+		"deploy": "npm run build && npm run deploy:prod && npm run deploy:test",
+		"deploy:prod": "bash -c 'source .env && [ -n \"$OBSIDIAN_PLUGIN_PATH\" ] && mkdir -p \"$OBSIDIAN_PLUGIN_PATH\" && cp main.js manifest.json styles.css \"$OBSIDIAN_PLUGIN_PATH\"'",
+		"deploy:test": "bash -c 'source .env && [ -n \"$OBSIDIAN_TEST_PLUGIN_PATH\" ] && mkdir -p \"$OBSIDIAN_TEST_PLUGIN_PATH\" && cp main.js manifest.json styles.css \"$OBSIDIAN_TEST_PLUGIN_PATH\"'"
 	},
 	"keywords": [
 		"obsidian",

@@ -1,28 +1,28 @@
-import { Editor, MarkdownView, Notice, Platform, Plugin, requestUrl } from "obsidian";
+import { Editor, MarkdownView, Notice, Platform, Plugin, TFile, requestUrl } from "obsidian";
 import {
-	AddressResult,
-	CheckInState,
 	DEFAULT_SETTINGS,
-	LocationNote,
-	LocationResult,
-	MyLocSettings,
-	SavedPlace,
-	WeatherResult,
+	type ActivePlaceSession,
+	type AddressResult,
+	type InlineTemplateContext,
+	type LocationResult,
+	type MyLocSettings,
+	type PlaceRecord,
 } from "./types";
-import { formatDuration, generateId, getSystemTimezone, sanitizeFilename } from "./utils";
+import { formatDuration, generateId, getSystemTimezone } from "./utils";
 import {
-	FormatPickerModal,
-	LocationNotePickerModal,
+	ActivePlacesModal,
+	CreatePlaceInput,
+	InsertLocationPromptModal,
+	LoginModal,
+	LogoutModal,
 	MyLocSettingTab,
-	SavePlaceModal,
-	SavedPlacePickerModal,
 } from "./ui";
 import { LocationService } from "./location-service";
 import { NoteService } from "./note-service";
 
 export default class MyLocPlugin extends Plugin {
 	settings: MyLocSettings;
-	activeCheckIn: CheckInState | null = null;
+	activeSessions: ActivePlaceSession[] = [];
 	private locationService!: LocationService;
 	private noteService!: NoteService;
 
@@ -36,106 +36,39 @@ export default class MyLocPlugin extends Plugin {
 			{
 				isMobile: Platform.isMobile,
 				requestUrl,
-				openSavedPlacePicker: (matches) =>
-					new Promise((resolve) => {
-						new SavedPlacePickerModal(this.app, matches, (place) => resolve(place)).open();
-					}),
 			}
 		);
 		this.noteService = new NoteService(this.app);
 
 		this.addCommand({
 			id: "insert-location",
-			name: "Insert location (quick)",
+			name: "Insert current location",
 			editorCallback: (editor: Editor) => {
-				void this.insertLocation(editor, "quick");
+				void this.insertLocation(editor);
 			},
 		});
 
 		this.addCommand({
-			id: "insert-location-choose-format",
-			name: "Insert location (choose format)",
-			editorCallback: (editor: Editor) => {
-				void this.insertLocation(editor, "choose");
-			},
-		});
-
-		this.addCommand({
-			id: "insert-location-frontmatter",
-			name: "Insert location as frontmatter",
-			editorCallback: () => {
-				void this.insertFrontmatter(false);
-			},
-		});
-
-		this.addCommand({
-			id: "update-location-frontmatter",
-			name: "Update note location",
-			editorCallback: () => {
-				void this.insertFrontmatter(true);
-			},
-		});
-
-		this.addCommand({
-			id: "insert-location-note",
-			name: "Insert location as new note",
+			id: "log-in",
+			name: "Log in",
 			callback: () => {
-				void this.createLocationNote();
+				void this.logIn();
 			},
 		});
 
 		this.addCommand({
-			id: "save-current-location",
-			name: "Save current location as place",
+			id: "log-out",
+			name: "Log out",
 			callback: () => {
-				const notice = new Notice("Getting location...", 0);
-				void (async () => {
-					try {
-						const location = await this.locationService.getLocation();
-						notice.hide();
-						new SavePlaceModal(this.app, (name) => {
-							const place: SavedPlace = {
-								id: generateId(),
-								name,
-								latitude: location.latitude,
-								longitude: location.longitude,
-								radius: 200,
-								template: "{place}\n{coords}",
-							};
-							this.settings.savedPlaces.push(place);
-							void this.saveSettings().then(() => {
-								new Notice("Place saved \u2014 customize in settings");
-							});
-						}).open();
-					} catch {
-						notice.hide();
-						new Notice("Failed to get location");
-					}
-				})();
+				void this.logOut();
 			},
 		});
 
 		this.addCommand({
-			id: "check-in",
-			name: "Check in",
+			id: "active-places",
+			name: "Active places",
 			callback: () => {
-				void this.checkIn();
-			},
-		});
-
-		this.addCommand({
-			id: "check-out",
-			name: "Check out",
-			callback: () => {
-				void this.checkOut();
-			},
-		});
-
-		this.addCommand({
-			id: "clear-active-check-in",
-			name: "Clear active check-in",
-			callback: () => {
-				void this.clearActiveCheckIn();
+				this.showActivePlaces();
 			},
 		});
 
@@ -145,7 +78,7 @@ export default class MyLocPlugin extends Plugin {
 				new Notice("Open a note to insert location");
 				return;
 			}
-			await this.insertLocation(view.editor, "quick");
+			await this.insertLocation(view.editor);
 		});
 
 		this.addSettingTab(new MyLocSettingTab(this.app, this));
@@ -153,141 +86,16 @@ export default class MyLocPlugin extends Plugin {
 
 	async loadSettings() {
 		const loaded = await this.loadData();
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
-		this.settings.frontmatterFields = Object.assign(
-			{},
-			DEFAULT_SETTINGS.frontmatterFields,
-			loaded?.frontmatterFields
-		);
-		this.settings.checkin = Object.assign(
-			{},
-			DEFAULT_SETTINGS.checkin,
-			loaded?.checkin
-		);
-		this.settings.privacy = Object.assign(
-			{},
-			DEFAULT_SETTINGS.privacy,
-			loaded?.privacy
-		);
-		this.activeCheckIn = loaded?.activeCheckIn || null;
-
-		// Migrate old customTemplate to customTemplates array
-		if (loaded && "customTemplate" in loaded && !Array.isArray(loaded.customTemplates)) {
-			const oldTemplate = loaded.customTemplate as string;
-			if (oldTemplate) {
-				const id = generateId();
-				this.settings.customTemplates = [{ id, name: "Custom", template: oldTemplate }];
-				if (this.settings.format === "custom") {
-					this.settings.format = id;
-				}
-			} else {
-				this.settings.customTemplates = [];
-			}
-			if (this.settings.format === "custom") {
-				this.settings.format = "full";
-			}
-				delete (this.settings as MyLocSettings & { customTemplate?: string }).customTemplate;
-			await this.saveSettings();
-		}
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded?.settings || loaded);
+		this.settings.privacy = Object.assign({}, DEFAULT_SETTINGS.privacy, loaded?.settings?.privacy || loaded?.privacy);
+		this.activeSessions = Array.isArray(loaded?.activeSessions) ? loaded.activeSessions : [];
 	}
 
 	async saveSettings() {
-		await this.saveData({ ...this.settings, activeCheckIn: this.activeCheckIn });
-	}
-
-	private async insertLocation(editor: Editor, mode: "quick" | "choose") {
-		const notice = new Notice("Getting location...", 0);
-		try {
-			const location = await this.locationService.getLocation();
-			const place = await this.locationService.resolvePlace(location);
-			notice.hide();
-
-			if (place) {
-				const text = await this.formatLocation(location, place);
-				editor.replaceSelection(text);
-				new Notice("Location inserted");
-				return;
-			}
-
-			if (mode === "quick") {
-				const text = await this.formatLocation(location, this.settings.format);
-				editor.replaceSelection(text);
-				new Notice("Location inserted");
-				return;
-			}
-
-			new FormatPickerModal(this.app, this.settings.customTemplates, (formatId) => {
-				void this.formatLocation(location, formatId).then((text) => {
-					editor.replaceSelection(text);
-					new Notice("Location inserted");
-				}).catch(() => {
-					new Notice("Failed to format location");
-				});
-			}).open();
-		} catch (error) {
-			notice.hide();
-			new Notice(error instanceof Error ? error.message : "Failed to get location");
-		}
-	}
-
-	private async insertFrontmatter(update: boolean) {
-		const file = this.app.workspace.getActiveFile();
-		if (!file) {
-			new Notice("No active file");
-			return;
-		}
-
-		const notice = new Notice("Getting location...", 0);
-
-		try {
-			const location = await this.locationService.getLocation();
-			const place = await this.locationService.resolvePlace(location);
-			const fields = this.settings.frontmatterFields;
-
-			let address: AddressResult | null = null;
-			let weather: WeatherResult | null = null;
-
-			if (fields.address) {
-				if (place) {
-					address = { display: place.name };
-				} else {
-					try {
-						address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
-					} catch {
-						// Geocoding may fail due to network or rate limits
-					}
-				}
-			}
-
-			if (fields.weather) {
-				try {
-						weather = await this.locationService.getWeather(location.latitude, location.longitude);
-				} catch {
-					// Weather fetch may fail due to network issues
-				}
-			}
-
-			const status = await this.noteService.upsertFrontmatterLocation(file, {
-				update,
-				location,
-				fields,
-				address: address?.display || null,
-				datetime: fields.datetime ? this.formatDateTime(new Date()).iso : undefined,
-				weather: fields.weather && weather ? `${weather.temperature}${weather.unit}, ${weather.description}` : null,
-			});
-
-			if (status === "exists") {
-				notice.hide();
-				new Notice("Location already exists. Use 'update note location' to replace.");
-				return;
-			}
-
-			notice.hide();
-			new Notice(update ? "Location updated" : "Location added to frontmatter");
-		} catch {
-			notice.hide();
-			new Notice("Failed to get location");
-		}
+		await this.saveData({
+			settings: this.settings,
+			activeSessions: this.activeSessions,
+		});
 	}
 
 	getTimezone(): string {
@@ -311,351 +119,346 @@ export default class MyLocPlugin extends Plugin {
 		};
 	}
 
-	private async formatLocation(location: LocationResult, formatIdOrPlace?: string | SavedPlace): Promise<string> {
-		// If a SavedPlace is passed, use its template with the place name as address
-		if (formatIdOrPlace && typeof formatIdOrPlace !== "string") {
-			const place = formatIdOrPlace;
-			const weather = await this.locationService.maybeGetWeatherForTemplate(location, place.template);
-			return this.locationService.applyTemplate(place.template, this.locationService.buildTemplateContext(location, {
-				placeName: place.name,
-				weather,
-			}));
-		}
-
-		const id = (formatIdOrPlace as string) || this.settings.format;
-
-		let address: AddressResult | null = null;
-		let weather: WeatherResult | null = null;
-
-		// Look up custom template if not a built-in format
-		const customTemplate = !["full", "compact", "coords"].includes(id)
-			? this.settings.customTemplates.find((t) => t.id === id)
-			: null;
-
-		if (id !== "coords") {
-			try {
-				address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
-			} catch {
-				// Geocoding may fail due to network or rate limits
-			}
-		}
-
-		const needsWeather = this.settings.includeWeather ||
-			(customTemplate && /\{(weather|temp)\}/.test(customTemplate.template));
-		if (needsWeather) {
-			try {
-				weather = await this.locationService.getWeather(location.latitude, location.longitude);
-			} catch {
-				// Weather fetch may fail due to network issues
-			}
-		}
-
-		const context = this.locationService.buildTemplateContext(location, { address, weather });
-
-		if (customTemplate) {
-			return this.locationService.applyTemplate(customTemplate.template, context);
-		}
-
-		if (id === "coords") {
-			let result = context.coords;
-			if (this.settings.includeTimestamp) result += ` \u2014 ${context.datetime}`;
-			if (weather) result += ` \u2014 ${context.weather}`;
-			return result;
-		}
-
-		if (id === "compact") {
-			const exactCoords = this.locationService.getCoordsString(location, false);
-			let result = address ? `${address.display} (${exactCoords})${location.isApproximate ? " (approximate)" : ""}` : context.coords;
-			if (this.settings.includeTimestamp) result += ` \u2014 ${context.datetime}`;
-			if (weather) result += ` \u2014 ${context.weather}`;
-			return result;
-		}
-
-		// Full format (also fallback for unknown IDs)
-		const lines: string[] = [];
-		if (address) lines.push(address.display);
-		lines.push(context.coords);
-		if (this.settings.includeTimestamp) lines.push(context.datetime);
-		if (weather) lines.push(context.weather);
-		lines.push(context.mapLink);
-		return lines.join("\n");
-	}
-
-	async clearActiveCheckIn(noticeText = "Active check-in cleared") {
-		if (!this.activeCheckIn) {
-			new Notice("No active check-in");
-			return;
-		}
-
-		this.activeCheckIn = null;
-		await this.saveSettings();
-		new Notice(noticeText);
-	}
-
-	private async createLocationNote() {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view) {
-			new Notice("Open a note to insert a location note link");
-			return;
-		}
-
-		if (this.settings.locationNotes.length === 0) {
-			new Notice("No location notes configured. Add one in settings.");
-			return;
-		}
-
+	private async insertLocation(editor: Editor) {
 		const notice = new Notice("Getting location...", 0);
-		let location: LocationResult;
 		try {
-			location = await this.locationService.getLocation();
-		} catch {
-			notice.hide();
-			new Notice("Failed to get location");
-			return;
-		}
-
-		const place = await this.locationService.resolvePlace(location);
-
-		// Pick location note config (or use the only one)
-		let noteConfig: LocationNote;
-		if (this.settings.locationNotes.length === 1) {
-			noteConfig = this.settings.locationNotes[0];
-		} else {
-			try {
-				noteConfig = await new Promise<LocationNote>((resolve, reject) => {
-					new LocationNotePickerModal(this.app, this.settings.locationNotes, (picked) => {
-						if (picked) resolve(picked);
-						else reject(new Error("cancelled"));
-					}).open();
-				});
-			} catch {
-				notice.hide();
-				return; // User cancelled
+			const location = await this.locationService.getLocation();
+			const nearby = this.locationService.findMatchingPlaces(location);
+			const place = nearby[0]?.place || null;
+			const activePaths = new Set(this.activeSessions.map((session) => session.placePath));
+			const unloggedNearby = nearby.filter((match) => !activePaths.has(match.place.path));
+			let address: AddressResult | null = null;
+			if (!place) {
+				try {
+					address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
+				} catch {
+					// Leave address empty when geocoding fails.
+				}
 			}
-		}
 
-		// Read template file
-		const templateFile = this.app.vault.getAbstractFileByPath(noteConfig.templatePath);
-		if (!templateFile || !("stat" in templateFile)) {
 			notice.hide();
-			new Notice(`Template file not found: ${noteConfig.templatePath}`);
-			return;
-		}
-		const templateContent = await this.app.vault.read(templateFile as import("obsidian").TFile);
 
-		let address: AddressResult | null = null;
-		const allTemplates = [noteConfig.directory, noteConfig.filenameTemplate, templateContent, noteConfig.linkTemplate].join("\n");
-		const needsAddress = /\{(address|city|country)\}/.test(allTemplates);
-		const needsWeather = /\{(weather|temp)\}/.test(allTemplates);
+			const prompt = await new Promise<{ action: "login-and-insert" | "insert-only" | "cancel"; useInlineText: boolean }>((resolve) => {
+				new InsertLocationPromptModal(
+					this.app,
+					unloggedNearby.length,
+					Boolean(place?.inlineText?.trim()),
+					resolve
+				).open();
+			});
 
-		if (place) {
-			address = { display: place.name, city: undefined, country: undefined };
-		} else if (needsAddress) {
-			try {
-				address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
-			} catch {
-				notice.hide();
-				new Notice("Geocoding failed, cannot resolve address placeholders");
+			if (prompt.action === "cancel") {
 				return;
 			}
-		}
 
-		let weather: WeatherResult | null = null;
-		if (needsWeather) {
-			try {
-				weather = await this.locationService.getWeather(location.latitude, location.longitude);
-			} catch {
-				// Weather fetch may fail
+			if (prompt.action === "login-and-insert" && unloggedNearby.length > 0) {
+				await this.logInWithLocation(location, nearby);
 			}
-		}
 
-		const placeholders: Record<string, string> = this.locationService.buildTemplateContext(location, {
-			address,
-			placeName: place?.name,
-			weather,
-		});
-
-		// Resolve directory and filename
-		let dir: string;
-		let filename: string;
-		try {
-			dir = this.locationService.normalizeVaultPath(this.locationService.applyTemplate(noteConfig.directory, placeholders));
-			filename = sanitizeFilename(this.locationService.applyTemplate(noteConfig.filenameTemplate, placeholders).trim());
-			if (!filename) {
-				throw new Error("Location note filename cannot be empty");
+			if (prompt.useInlineText && place?.inlineText.trim()) {
+				editor.replaceSelection(this.renderPlaceInlineText(place, location));
+				new Notice("Location inserted");
+				return;
 			}
+
+			const lines: string[] = [];
+			if (place) {
+				lines.push(place.name);
+			} else if (address) {
+				lines.push(address.display);
+			}
+			lines.push(this.locationService.getCoordsString(location));
+			lines.push(`[Open in Map](${this.locationService.getMapUrl(location.latitude, location.longitude)})`);
+			editor.replaceSelection(lines.join("\n"));
+			notice.hide();
+			new Notice("Location inserted");
 		} catch (error) {
 			notice.hide();
-			new Notice(error instanceof Error ? error.message : "Invalid location note path");
-			return;
+			new Notice(error instanceof Error ? error.message : "Failed to get location");
 		}
-
-		try {
-			await this.locationService.ensureFolderExists(dir);
-		} catch (error) {
-			notice.hide();
-			new Notice(error instanceof Error ? error.message : "Failed to create location note directory");
-			return;
-		}
-
-		// Get unique path and create note
-		const notePath = this.noteService.uniquePath(dir, filename);
-		const noteTitle = notePath.slice(notePath.lastIndexOf("/") + 1).replace(/\.md$/, "");
-		const notePathNoExt = notePath.replace(/\.md$/, "");
-
-		// Add note-specific placeholders
-		placeholders["notePath"] = notePathNoExt;
-		placeholders["noteTitle"] = noteTitle;
-
-		const content = this.locationService.applyTemplate(templateContent, placeholders);
-		await this.app.vault.create(notePath, content);
-
-		// Insert link at cursor
-		const linkText = this.locationService.applyTemplate(noteConfig.linkTemplate, placeholders);
-		view.editor.replaceSelection(linkText);
-
-		notice.hide();
-		new Notice("Location note created");
 	}
 
-	private async checkIn() {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view) {
-			new Notice("Open a note to check in");
-			return;
-		}
-
-		if (this.activeCheckIn) {
-			new Notice("Already checked in. Check out first.");
-			return;
-		}
-
+	private async logIn() {
 		const notice = new Notice("Getting location...", 0);
-		let location: LocationResult;
 		try {
-			location = await this.locationService.getLocation();
-		} catch {
+			const location = await this.locationService.getLocation();
+			const matches = this.locationService.findMatchingPlaces(location);
 			notice.hide();
-			new Notice("Failed to get location");
+			const loggedInCount = await this.logInWithLocation(location, matches);
+			if (loggedInCount > 0) {
+				new Notice(`Logged in to ${loggedInCount} place${loggedInCount === 1 ? "" : "s"}`);
+			}
+		} catch (error) {
+			notice.hide();
+			new Notice(error instanceof Error ? error.message : "Log in failed");
+		}
+	}
+
+	private async logInWithLocation(location: LocationResult, matches?: { place: PlaceRecord; distance: number }[]) {
+		const result = await new Promise<{
+			selectedPaths: string[];
+			createPlace?: CreatePlaceInput;
+			writeInline: boolean;
+		} | null>((resolve) => {
+			new LoginModal(
+				this.app,
+				matches || this.locationService.findMatchingPlaces(location),
+				new Set(this.activeSessions.map((session) => session.placePath)),
+				this.settings.inlineLoggingDefault,
+				this.settings.defaultRadius,
+				resolve
+			).open();
+		});
+
+		if (!result) return 0;
+
+		const placesByPath = new Map(this.locationService.getAllPlaces().map((place) => [place.path, place]));
+		const selectedPlaces: PlaceRecord[] = [];
+		for (const path of result.selectedPaths) {
+			const place = placesByPath.get(path);
+			if (place) {
+				selectedPlaces.push(place);
+			}
+		}
+
+		if (result.createPlace) {
+			const created = await this.createPlaceAtLocation(location, result.createPlace);
+			selectedPlaces.push(created);
+		}
+
+		if (selectedPlaces.length === 0) return 0;
+
+		let loggedInCount = 0;
+		for (const place of selectedPlaces) {
+			if (this.activeSessions.some((session) => session.placePath === place.path)) {
+				continue;
+			}
+
+			const session: ActivePlaceSession = {
+				id: generateId(),
+				placePath: place.path,
+				placeName: place.name,
+				inlineName: place.inlineName,
+				startedAt: Date.now(),
+				startedLatitude: location.latitude,
+				startedLongitude: location.longitude,
+			};
+			this.activeSessions.push(session);
+			await this.appendPlaceLog(place, this.formatLoginEvent(session.startedAt));
+			await this.appendTimelineLog(this.formatTimelineLogin(place, session.startedAt));
+
+			if (result.writeInline) {
+				await this.appendInlineLog(this.settings.inlineLoginTemplate, place, session.startedAt);
+			}
+			loggedInCount++;
+		}
+
+		await this.saveSettings();
+		return loggedInCount;
+	}
+
+	private async logOut(sessionIds?: string[], writeInline = this.settings.inlineLoggingDefault) {
+		if (this.activeSessions.length === 0) {
+			new Notice("No active places");
 			return;
 		}
 
-		const place = await this.locationService.resolvePlace(location);
+		let selectedIds = sessionIds;
+		let inline = writeInline;
+		if (!selectedIds) {
+			const currentMatches = await this.getCurrentNearbyActivePaths();
+			const result = await new Promise<{ selectedSessionIds: string[]; writeInline: boolean } | null>((resolve) => {
+				new LogoutModal(
+					this.app,
+					this.activeSessions,
+					currentMatches,
+					this.settings.inlineLoggingDefault,
+					resolve
+				).open();
+			});
+			if (!result) return;
+			selectedIds = result.selectedSessionIds;
+			inline = result.writeInline;
+		}
+
+		const sessionsToEnd = this.activeSessions.filter((session) => selectedIds.includes(session.id));
+		if (sessionsToEnd.length === 0) {
+			new Notice("No active places selected");
+			return;
+		}
+
+		const placesByPath = new Map(this.locationService.getAllPlaces().map((place) => [place.path, place]));
+		for (const session of sessionsToEnd) {
+			const place = placesByPath.get(session.placePath);
+			if (!place) {
+				continue;
+			}
+
+			const endedAt = Date.now();
+			const duration = formatDuration(endedAt - session.startedAt);
+			await this.appendPlaceLog(place, this.formatLogoutEvent(endedAt, duration));
+			await this.appendTimelineLog(this.formatTimelineLogout(place, endedAt, duration));
+
+			if (inline) {
+				await this.appendInlineLog(this.settings.inlineLogoutTemplate, place, endedAt, duration);
+			}
+		}
+
+		this.activeSessions = this.activeSessions.filter((session) => !selectedIds.includes(session.id));
+		await this.saveSettings();
+		new Notice(`Logged out from ${sessionsToEnd.length} place${sessionsToEnd.length === 1 ? "" : "s"}`);
+	}
+
+	private showActivePlaces() {
+		new ActivePlacesModal(this.app, this.activeSessions, this.settings.inlineLoggingDefault, (sessionIds, writeInline) => {
+			void this.logOut(sessionIds, writeInline);
+		}).open();
+	}
+
+	private async getCurrentNearbyActivePaths(): Promise<Set<string>> {
+		try {
+			const location = await this.locationService.getLocation();
+			const matches = this.locationService.findMatchingPlaces(location);
+			const activePaths = new Set(this.activeSessions.map((session) => session.placePath));
+			return new Set(matches.map((match) => match.place.path).filter((path) => activePaths.has(path)));
+		} catch {
+			return new Set<string>();
+		}
+	}
+
+	private async createPlaceAtLocation(location: LocationResult, input: CreatePlaceInput): Promise<PlaceRecord> {
+		const path = this.locationService.getPlaceFilePath(input.path);
+		if (this.app.vault.getAbstractFileByPath(path)) {
+			throw new Error(`Place file already exists: ${path}`);
+		}
+
+		const lastSlash = path.lastIndexOf("/");
+		const dir = path.slice(0, lastSlash);
+		await this.locationService.ensureFolderExists(dir);
 
 		let address: AddressResult | null = null;
-		if (place) {
-			address = { display: place.name, city: undefined, country: undefined };
-		} else {
-			try {
-				address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
-			} catch {
-				// Geocoding may fail
-			}
+		try {
+			address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
+		} catch {
+			// Place creation still works without a resolved address.
 		}
 
-		const file = view.file;
-		if (!file) {
-			notice.hide();
-			new Notice("No active file");
-			return;
-		}
-
-		this.activeCheckIn = {
-			timestamp: Date.now(),
+		const pathParts = path.replace(/\.md$/, "").split("/");
+		const placeName = pathParts[pathParts.length - 1];
+		const place: PlaceRecord = {
+			path,
+			name: placeName,
+			inlineName: input.inlineName,
+			inlineText: input.inlineText,
 			latitude: location.latitude,
 			longitude: location.longitude,
-			address: address?.display,
-			city: address?.city,
-			country: address?.country,
-			place: place?.name,
-			placeId: place?.id,
-			notePath: file.path,
+			radius: input.radius,
+			tags: input.tags,
 		};
-		await this.saveSettings();
 
-		// Use place's check-in template if defined, then place template, then global
-		const template = (place?.checkinTemplate) || (place?.template) || this.settings.checkin.checkinTemplate;
-		const weather = await this.locationService.maybeGetWeatherForTemplate(location, template);
-		const text = this.locationService.applyTemplate(template, this.locationService.buildTemplateContext(location, {
-			address,
-			placeName: place?.name,
-			weather,
-			includeApproximate: false,
-		}));
-
-		await this.noteService.appendUnderHeading(file, this.settings.checkin.heading, text);
-		notice.hide();
-		new Notice("Checked in");
-	}
-
-	private async checkOut() {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view || !view.file) {
-			new Notice("Open a note to check out");
-			return;
-		}
-
-		if (!this.activeCheckIn) {
-			new Notice("Not checked in. Check in first.");
-			return;
-		}
-
-		const checkIn = this.activeCheckIn;
-		const file = view.file;
-		const sameNote = file.path === checkIn.notePath;
-		const duration = Date.now() - checkIn.timestamp;
-		const durationStr = formatDuration(duration, this.settings.checkin.durationFormat);
-
-		const notice = new Notice("Checking out...", 0);
-		const currentDetails = await this.locationService.resolveCurrentLocationDetails(checkIn);
-
-		// Pick template: per-place checkout > same/different note global > fallback
-		const checkinPlace = checkIn.placeId
-			? this.settings.savedPlaces.find((p) => p.id === checkIn.placeId)
-			: null;
-		let template: string;
-		if (checkinPlace?.checkoutTemplate) {
-			template = checkinPlace.checkoutTemplate;
-		} else if (sameNote) {
-			template = this.settings.checkin.checkoutTemplate;
-		} else {
-			template = this.settings.checkin.checkoutTemplateOther;
-		}
-
-		// Check-in context placeholders
-		const checkinDate = this.formatDateTime(new Date(checkIn.timestamp));
-		const checkinNotePath = checkIn.notePath?.replace(/\.md$/, "") || "";
-		const checkinNoteTitle = checkinNotePath.slice(checkinNotePath.lastIndexOf("/") + 1);
-
-		const weather = await this.locationService.maybeGetWeatherForTemplate(currentDetails.location, template);
-		const text = this.locationService.applyTemplate(template, {
-			...this.locationService.buildTemplateContext(currentDetails.location, {
-				address: currentDetails.address
-					? { display: currentDetails.address, city: currentDetails.city, country: currentDetails.country }
-					: null,
-				placeName: currentDetails.placeName,
-				weather,
-				includeApproximate: false,
-			}),
-			duration: durationStr,
-			checkinTime: checkinDate.time,
-			checkinDate: checkinDate.date,
-			checkinDatetime: checkinDate.datetime,
-			checkinAddress: checkIn.address || "",
-			checkinPlace: checkIn.place || "",
-			checkinNote: checkinNotePath ? `[[${checkinNotePath}|${checkinNoteTitle}]]` : "",
+		const content = this.noteService.buildPlaceNoteContent(place, {
+			address: address?.display || null,
+			mapUrl: this.locationService.getMapUrl(location.latitude, location.longitude),
 		});
-
-		await this.noteService.appendUnderHeading(file, this.settings.checkin.heading, text);
-
-		this.activeCheckIn = null;
-		await this.saveSettings();
-
-		notice.hide();
-		new Notice(`Checked out (${durationStr})`);
+		await this.app.vault.create(path, content);
+		return place;
 	}
 
-	onunload() {
-		// No cleanup needed
+	private async appendPlaceLog(place: PlaceRecord, line: string) {
+		const file = this.app.vault.getAbstractFileByPath(place.path);
+		if (!(file instanceof TFile)) {
+			throw new Error(`Place file not found: ${place.path}`);
+		}
+		await this.noteService.appendUnderHeading(file, "Log", line);
+	}
+
+	private async appendTimelineLog(line: string) {
+		const folder = this.locationService.getTimelineFolder();
+		await this.locationService.ensureFolderExists(folder);
+		const path = this.locationService.getTimelineFilePath(new Date());
+		const month = path.split("/").pop()?.replace(/\.md$/, "") || "";
+		const file = await this.noteService.ensureFile(path, `# ${month}\n\n`);
+		await this.noteService.appendUnderHeading(file, "", line);
+	}
+
+	private async appendInlineLog(
+		template: string,
+		place: PlaceRecord,
+		timestamp: number,
+		duration = ""
+	) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) {
+			new Notice("No active note for inline logging");
+			return;
+		}
+
+		const values = this.buildInlineContext(place, timestamp, duration);
+		const text = this.ensurePlaceLinkIncluded(
+			this.locationService.formatInlineTemplate(template, values),
+			place
+		);
+		view.editor.replaceSelection(`${text}\n`);
+	}
+
+	private buildInlineContext(place: PlaceRecord, timestamp: number, duration: string): InlineTemplateContext {
+		const effectivePlace = place.inlineName || place.name;
+		const formatted = this.formatDateTime(new Date(timestamp));
+		return {
+			place: effectivePlace,
+			placeName: place.name,
+			inlineName: place.inlineName,
+			placeLink: this.getPlaceLink(place),
+			date: formatted.date,
+			time: formatted.time,
+			datetime: formatted.datetime,
+			duration,
+		};
+	}
+
+	private renderPlaceInlineText(place: PlaceRecord, location: LocationResult): string {
+		const values = {
+			place: place.inlineName || place.name,
+			placeName: place.name,
+			inlineName: place.inlineName,
+			placeLink: this.getPlaceLink(place),
+			lat: location.latitude.toFixed(6),
+			lon: location.longitude.toFixed(6),
+			coords: this.locationService.getCoordsString(location),
+			mapUrl: this.locationService.getMapUrl(location.latitude, location.longitude),
+		};
+		return this.ensurePlaceLinkIncluded(
+			this.locationService.formatInlineTemplate(place.inlineText, values),
+			place
+		);
+	}
+
+	private formatLoginEvent(timestamp: number): string {
+		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged in · ${this.getDailyNoteLink(timestamp)}`;
+	}
+
+	private formatLogoutEvent(timestamp: number, duration: string): string {
+		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged out · ${duration} · ${this.getDailyNoteLink(timestamp)}`;
+	}
+
+	private formatTimelineLogin(place: PlaceRecord, timestamp: number): string {
+		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged in [[${place.path.replace(/\.md$/, "")}]]`;
+	}
+
+	private formatTimelineLogout(place: PlaceRecord, timestamp: number, duration: string): string {
+		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged out [[${place.path.replace(/\.md$/, "")}]] · ${duration}`;
+	}
+
+	private getPlaceLink(place: PlaceRecord): string {
+		return `[[${place.path.replace(/\.md$/, "")}]]`;
+	}
+
+	private getDailyNoteLink(timestamp: number): string {
+		return `[[${this.formatDateTime(new Date(timestamp)).iso.slice(0, 10)}]]`;
+	}
+
+	private ensurePlaceLinkIncluded(text: string, place: PlaceRecord): string {
+		const placeLink = this.getPlaceLink(place);
+		return text.includes(placeLink) ? text : `${text} · ${placeLink}`;
 	}
 }
