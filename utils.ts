@@ -62,3 +62,28 @@ export function generateId(): string {
 		return Date.now().toString(36);
 	}
 }
+
+export interface ParsedTimelineEvent {
+	dailyNotePath: string;
+	dailyNoteLabel: string;
+	time: string;
+	action: "in" | "out";
+	placePath: string;
+	placeLabel: string;
+}
+
+export function parseTimelineLine(line: string): ParsedTimelineEvent | null {
+	const match = line.match(/^- \[\[([^\]|]+)(?:\|([^\]]+))?\]\] (\d{2}:\d{2}) logged (in|out) \[\[([^\]|]+)(?:\|([^\]]+))?\]\](?: · .+)?$/);
+	if (!match) {
+		return null;
+	}
+
+	return {
+		dailyNotePath: match[1],
+		dailyNoteLabel: match[2] || match[1].split("/").pop() || match[1],
+		time: match[3],
+		action: match[4] as "in" | "out",
+		placePath: match[5],
+		placeLabel: match[6] || match[5].split("/").pop() || match[5],
+	};
+}

@@ -104,6 +104,8 @@ Behavior:
 
 Shows the current active sessions and lets you log out from selected places.
 
+It also includes `Check past time...`, which lets you choose a date and time and see which places were active then based on the timeline.
+
 ### `Create place note manually`
 
 Creates a place note without using the current device location.

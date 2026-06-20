@@ -34,6 +34,17 @@ export interface InsertLocationPromptResult {
 	useInlineText: boolean;
 }
 
+export interface PastTimeInputResult {
+	date: string;
+	time: string;
+}
+
+export interface PastTimeMatch {
+	placePath: string;
+	placeLabel: string;
+	startedAtLabel: string;
+}
+
 export class ManualPlaceSelectionModal extends Modal {
 	private selectedPaths: Set<string>;
 
@@ -547,7 +558,8 @@ export class ActivePlacesModal extends Modal {
 		app: App,
 		private sessions: ActivePlaceSession[],
 		private inlineDefault: boolean,
-		private onLogout: (sessionIds: string[], writeInline: boolean) => void
+		private onLogout: (sessionIds: string[], writeInline: boolean) => void,
+		private onCheckPastTime: () => void
 	) {
 		super(app);
 	}
@@ -563,6 +575,18 @@ export class ActivePlacesModal extends Modal {
 
 		if (this.sessions.length === 0) {
 			contentEl.createEl("p", { text: "No active places.", cls: "setting-item-description" });
+			new Setting(contentEl)
+				.addButton((btn) =>
+					btn.setButtonText("Check past time...").setCta().onClick(() => {
+						this.close();
+						this.onCheckPastTime();
+					})
+				)
+				.addButton((btn) =>
+					btn.setButtonText("Close").onClick(() => {
+						this.close();
+					})
+				);
 			return;
 		}
 
@@ -593,6 +617,12 @@ export class ActivePlacesModal extends Modal {
 
 		new Setting(contentEl)
 			.addButton((btn) =>
+				btn.setButtonText("Check past time...").onClick(() => {
+					this.close();
+					this.onCheckPastTime();
+				})
+			)
+			.addButton((btn) =>
 				btn.setButtonText("Log out selected").setCta().onClick(() => {
 					if (selected.size === 0) {
 						new Notice("Select at least one active place");
@@ -607,6 +637,110 @@ export class ActivePlacesModal extends Modal {
 					this.close();
 				})
 			);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
+}
+
+export class PastTimeInputModal extends Modal {
+	private result: PastTimeInputResult | null = null;
+
+	constructor(
+		app: App,
+		private initialDate: string,
+		private initialTime: string,
+		private onCloseResult: (result: PastTimeInputResult | null) => void
+	) {
+		super(app);
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h3", { text: "Check past time" });
+		contentEl.createEl("p", {
+			text: "Find which places were active at a specific date and time based on the timeline.",
+			cls: "setting-item-description",
+		});
+
+		let date = this.initialDate;
+		let time = this.initialTime;
+
+		new Setting(contentEl)
+			.setName("Date")
+			.addText((text) => {
+				text.setValue(date).onChange((value) => {
+					date = value.trim();
+				});
+				text.inputEl.type = "date";
+			});
+
+		new Setting(contentEl)
+			.setName("Time")
+			.addText((text) => {
+				text.setValue(time).onChange((value) => {
+					time = value.trim();
+				});
+				text.inputEl.type = "time";
+			});
+
+		new Setting(contentEl)
+			.addButton((btn) =>
+				btn.setButtonText("Check").setCta().onClick(() => {
+					if (!date || !time) {
+						new Notice("Date and time are required");
+						return;
+					}
+					this.result = { date, time };
+					this.close();
+				})
+			)
+			.addButton((btn) =>
+				btn.setButtonText("Cancel").onClick(() => {
+					this.close();
+				})
+			);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+		this.onCloseResult(this.result);
+	}
+}
+
+export class PastTimeResultsModal extends Modal {
+	constructor(
+		app: App,
+		private targetLabel: string,
+		private matches: PastTimeMatch[]
+	) {
+		super(app);
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h3", { text: "Past active places" });
+		contentEl.createEl("p", {
+			text: `Active places at ${this.targetLabel}`,
+			cls: "setting-item-description",
+		});
+
+		if (this.matches.length === 0) {
+			contentEl.createEl("p", {
+				text: "No active places were found for that time.",
+				cls: "setting-item-description",
+			});
+			return;
+		}
+
+		for (const match of this.matches) {
+			new Setting(contentEl)
+				.setName(`[[${match.placePath}|${match.placeLabel}]]`)
+				.setDesc(`Active since ${match.startedAtLabel}`);
+		}
 	}
 
 	onClose() {

@@ -8,7 +8,7 @@ import {
 	type MyLocSettings,
 	type PlaceRecord,
 } from "./types";
-import { formatDuration, generateId, getSystemTimezone } from "./utils";
+import { formatDuration, generateId, getSystemTimezone, parseTimelineLine } from "./utils";
 import {
 	ActivePlacesModal,
 	CreatePlaceModal,
@@ -16,6 +16,8 @@ import {
 	InsertLocationPromptModal,
 	LoginModal,
 	LogoutModal,
+	PastTimeInputModal,
+	PastTimeResultsModal,
 	MyLocSettingTab,
 } from "./ui";
 import { LocationService } from "./location-service";
@@ -321,9 +323,45 @@ export default class MyLocPlugin extends Plugin {
 	}
 
 	private showActivePlaces() {
-		new ActivePlacesModal(this.app, this.activeSessions, this.settings.inlineLoggingDefault, (sessionIds, writeInline) => {
-			void this.logOut(sessionIds, writeInline);
-		}).open();
+		new ActivePlacesModal(
+			this.app,
+			this.activeSessions,
+			this.settings.inlineLoggingDefault,
+			(sessionIds, writeInline) => {
+				void this.logOut(sessionIds, writeInline);
+			},
+			() => {
+				void this.checkPastTime();
+			}
+		).open();
+	}
+
+	private async checkPastTime() {
+		const now = moment();
+		const input = await new Promise<{ date: string; time: string } | null>((resolve) => {
+			new PastTimeInputModal(
+				this.app,
+				now.format("YYYY-MM-DD"),
+				now.format("HH:mm"),
+				resolve
+			).open();
+		});
+		if (!input) {
+			return;
+		}
+
+		const targetMoment = moment(`${input.date} ${input.time}`, "YYYY-MM-DD HH:mm", true);
+		if (!targetMoment.isValid()) {
+			new Notice("Invalid date or time");
+			return;
+		}
+
+		const matches = await this.findPlacesActiveAt(targetMoment);
+		new PastTimeResultsModal(
+			this.app,
+			targetMoment.format("YYYY-MM-DD HH:mm"),
+			matches
+		).open();
 	}
 
 	private async getCurrentNearbyActivePaths(): Promise<Set<string>> {
@@ -516,5 +554,58 @@ export default class MyLocPlugin extends Plugin {
 			: "YYYY-MM-DD";
 		const folder = typeof options["folder"] === "string" ? options["folder"].trim().replace(/\/+$/g, "") : "";
 		return { format, folder };
+	}
+
+	private async findPlacesActiveAt(targetMoment: moment.Moment): Promise<Array<{
+		placePath: string;
+		placeLabel: string;
+		startedAtLabel: string;
+	}>> {
+		const timelineRoot = `${this.locationService.getTimelineFolder()}/`;
+		const files = this.app.vault.getMarkdownFiles()
+			.filter((file) => file.path.startsWith(timelineRoot))
+			.sort((a, b) => a.path.localeCompare(b.path));
+		const activeByPlace = new Map<string, { placeLabel: string; startedAtLabel: string; startedAt: moment.Moment }>();
+		const dailyFormat = this.settings.dailyNoteFormat || this.getDailyNotesSettings().format;
+
+		for (const file of files) {
+			const content = await this.app.vault.read(file);
+			for (const line of content.split("\n")) {
+				const parsed = parseTimelineLine(line);
+				if (!parsed) {
+					continue;
+				}
+
+				const basename = parsed.dailyNoteLabel;
+				const eventMoment = moment(`${basename} ${parsed.time}`, `${dailyFormat} HH:mm`, true);
+				if (!eventMoment.isValid() || eventMoment.isAfter(targetMoment)) {
+					continue;
+				}
+
+				if (parsed.action === "in") {
+					activeByPlace.set(parsed.placePath, {
+						placeLabel: parsed.placeLabel,
+						startedAtLabel: `${parsed.dailyNoteLabel} ${parsed.time}`,
+						startedAt: eventMoment,
+					});
+				} else {
+					activeByPlace.delete(parsed.placePath);
+				}
+			}
+		}
+
+		return Array.from(activeByPlace.entries())
+			.map(([placePath, value]) => ({
+				placePath,
+				placeLabel: value.placeLabel,
+				startedAtLabel: value.startedAtLabel,
+				startedAt: value.startedAt,
+			}))
+			.sort((a, b) => a.startedAt.valueOf() - b.startedAt.valueOf())
+			.map((item) => ({
+				placePath: item.placePath,
+				placeLabel: item.placeLabel,
+				startedAtLabel: item.startedAtLabel,
+			}));
 	}
 }
