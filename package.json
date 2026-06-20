@@ -1,7 +1,7 @@
 {
 	"name": "myloc",
-	"version": "0.1.0",
-	"description": "Insert your current location into Obsidian notes",
+	"version": "0.2.0",
+	"description": "Location logging and place-aware note insertion for Obsidian",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",

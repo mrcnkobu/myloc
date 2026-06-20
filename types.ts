@@ -52,8 +52,10 @@ export interface MyLocSettings {
 	timelineFolderName: string;
 	defaultRadius: number;
 	inlineLoggingDefault: boolean;
+	inlineLogHeading: string;
 	inlineLoginTemplate: string;
 	inlineLogoutTemplate: string;
+	dailyNoteFormat: string;
 	language: string;
 	timezone: string;
 	mapProvider: "osm" | "google";
@@ -66,8 +68,10 @@ export const DEFAULT_SETTINGS: MyLocSettings = {
 	timelineFolderName: "_timeline",
 	defaultRadius: 200,
 	inlineLoggingDefault: false,
-	inlineLoginTemplate: "📍 Logged in: {place} · {time} · {placeLink}",
-	inlineLogoutTemplate: "📍 Logged out: {place} · {time} · {duration} · {placeLink}",
+	inlineLogHeading: "",
+	inlineLoginTemplate: "📍 Logged in: {place} · {time}",
+	inlineLogoutTemplate: "📍 Logged out: {place} · {time} · {duration}",
+	dailyNoteFormat: "YYYY-MM-DD",
 	language: "",
 	timezone: "",
 	mapProvider: "osm",

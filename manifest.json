@@ -1,9 +1,9 @@
 {
 	"id": "myloc",
 	"name": "MyLoc",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"minAppVersion": "1.0.0",
-	"description": "Insert GPS location, address, and weather into notes.",
+	"description": "Location logging and place-aware note insertion for Obsidian.",
 	"author": "mkobu",
 	"isDesktopOnly": false
 }

@@ -1,4 +1,4 @@
-import type { App, TFile } from "obsidian";
+import type { App, Editor, TFile } from "obsidian";
 import type { PlaceRecord } from "./types";
 import { sanitizeFilename } from "./utils";
 
@@ -54,6 +54,38 @@ class NoteService {
 
 		lines.splice(insertIndex, 0, text);
 		await this.app.vault.modify(file, lines.join("\n"));
+	}
+
+	async appendUnderHeadingOrAtCursorLine(
+		editor: Editor,
+		file: TFile,
+		heading: string,
+		text: string
+	): Promise<"heading" | "cursor-line"> {
+		if (!heading) {
+			this.appendAtCursorLine(editor, text);
+			return "cursor-line";
+		}
+
+		const content = await this.app.vault.read(file);
+		const lines = content.split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const match = lines[i].match(/^(#{1,6})\s+(.*)/);
+			if (match && match[2].trim() === heading) {
+				await this.appendUnderHeading(file, heading, text);
+				return "heading";
+			}
+		}
+
+		this.appendAtCursorLine(editor, text);
+		return "cursor-line";
+	}
+
+	appendAtCursorLine(editor: Editor, text: string) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const insertion = lineText.trim().length > 0 ? ` ${text}` : text;
+		editor.replaceRange(insertion, { line: cursor.line, ch: lineText.length });
 	}
 
 	async ensureFile(path: string, content: string): Promise<TFile> {

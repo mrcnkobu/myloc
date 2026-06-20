@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Notice, Platform, Plugin, TFile, requestUrl } from "obsidian";
+import { Editor, MarkdownView, Notice, Platform, Plugin, TFile, moment, requestUrl } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	type ActivePlaceSession,
@@ -11,6 +11,7 @@ import {
 import { formatDuration, generateId, getSystemTimezone } from "./utils";
 import {
 	ActivePlacesModal,
+	CreatePlaceModal,
 	CreatePlaceInput,
 	InsertLocationPromptModal,
 	LoginModal,
@@ -53,6 +54,14 @@ export default class MyLocPlugin extends Plugin {
 			name: "Log in",
 			callback: () => {
 				void this.logIn();
+			},
+		});
+
+		this.addCommand({
+			id: "create-place-note-manually",
+			name: "Create place note manually",
+			callback: () => {
+				void this.createPlaceManually();
 			},
 		});
 
@@ -195,6 +204,7 @@ export default class MyLocPlugin extends Plugin {
 	}
 
 	private async logInWithLocation(location: LocationResult, matches?: { place: PlaceRecord; distance: number }[]) {
+		const allPlaces = this.locationService.getAllPlaces();
 		const result = await new Promise<{
 			selectedPaths: string[];
 			createPlace?: CreatePlaceInput;
@@ -203,6 +213,7 @@ export default class MyLocPlugin extends Plugin {
 			new LoginModal(
 				this.app,
 				matches || this.locationService.findMatchingPlaces(location),
+				allPlaces,
 				new Set(this.activeSessions.map((session) => session.placePath)),
 				this.settings.inlineLoggingDefault,
 				this.settings.defaultRadius,
@@ -212,7 +223,7 @@ export default class MyLocPlugin extends Plugin {
 
 		if (!result) return 0;
 
-		const placesByPath = new Map(this.locationService.getAllPlaces().map((place) => [place.path, place]));
+		const placesByPath = new Map(allPlaces.map((place) => [place.path, place]));
 		const selectedPlaces: PlaceRecord[] = [];
 		for (const path of result.selectedPaths) {
 			const place = placesByPath.get(path);
@@ -364,6 +375,36 @@ export default class MyLocPlugin extends Plugin {
 		return place;
 	}
 
+	private async createPlaceManually() {
+		const result = await new Promise<CreatePlaceInput | null>((resolve) => {
+			new CreatePlaceModal(
+				this.app,
+				this.settings.defaultRadius,
+				{
+					title: "Create place note manually",
+					description: "Create a place note without using the current device location.",
+					includeCoordinates: true,
+					confirmLabel: "Create place note",
+				},
+				resolve
+			).open();
+		});
+
+		if (!result || result.latitude === undefined || result.longitude === undefined) {
+			return;
+		}
+
+		const location: LocationResult = {
+			latitude: result.latitude,
+			longitude: result.longitude,
+			accuracy: 0,
+			isApproximate: false,
+		};
+
+		await this.createPlaceAtLocation(location, result);
+		new Notice("Place note created");
+	}
+
 	private async appendPlaceLog(place: PlaceRecord, line: string) {
 		const file = this.app.vault.getAbstractFileByPath(place.path);
 		if (!(file instanceof TFile)) {
@@ -376,8 +417,7 @@ export default class MyLocPlugin extends Plugin {
 		const folder = this.locationService.getTimelineFolder();
 		await this.locationService.ensureFolderExists(folder);
 		const path = this.locationService.getTimelineFilePath(new Date());
-		const month = path.split("/").pop()?.replace(/\.md$/, "") || "";
-		const file = await this.noteService.ensureFile(path, `# ${month}\n\n`);
+		const file = await this.noteService.ensureFile(path, "");
 		await this.noteService.appendUnderHeading(file, "", line);
 	}
 
@@ -388,21 +428,23 @@ export default class MyLocPlugin extends Plugin {
 		duration = ""
 	) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view) {
+		if (!view || !view.file) {
 			new Notice("No active note for inline logging");
 			return;
 		}
 
 		const values = this.buildInlineContext(place, timestamp, duration);
-		const text = this.ensurePlaceLinkIncluded(
-			this.locationService.formatInlineTemplate(template, values),
-			place
+		const text = this.locationService.formatInlineTemplate(template, values);
+		await this.noteService.appendUnderHeadingOrAtCursorLine(
+			view.editor,
+			view.file,
+			this.settings.inlineLogHeading,
+			text
 		);
-		view.editor.replaceSelection(`${text}\n`);
 	}
 
 	private buildInlineContext(place: PlaceRecord, timestamp: number, duration: string): InlineTemplateContext {
-		const effectivePlace = place.inlineName || place.name;
+		const effectivePlace = this.getAliasedPlaceLink(place);
 		const formatted = this.formatDateTime(new Date(timestamp));
 		return {
 			place: effectivePlace,
@@ -418,7 +460,7 @@ export default class MyLocPlugin extends Plugin {
 
 	private renderPlaceInlineText(place: PlaceRecord, location: LocationResult): string {
 		const values = {
-			place: place.inlineName || place.name,
+			place: this.getAliasedPlaceLink(place),
 			placeName: place.name,
 			inlineName: place.inlineName,
 			placeLink: this.getPlaceLink(place),
@@ -427,26 +469,23 @@ export default class MyLocPlugin extends Plugin {
 			coords: this.locationService.getCoordsString(location),
 			mapUrl: this.locationService.getMapUrl(location.latitude, location.longitude),
 		};
-		return this.ensurePlaceLinkIncluded(
-			this.locationService.formatInlineTemplate(place.inlineText, values),
-			place
-		);
+		return this.locationService.formatInlineTemplate(place.inlineText, values);
 	}
 
 	private formatLoginEvent(timestamp: number): string {
-		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged in · ${this.getDailyNoteLink(timestamp)}`;
+		return `- ${this.getDailyNoteLink(timestamp)} ${this.formatDateTime(new Date(timestamp)).time} logged in`;
 	}
 
 	private formatLogoutEvent(timestamp: number, duration: string): string {
-		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged out · ${duration} · ${this.getDailyNoteLink(timestamp)}`;
+		return `- ${this.getDailyNoteLink(timestamp)} ${this.formatDateTime(new Date(timestamp)).time} logged out · ${duration}`;
 	}
 
 	private formatTimelineLogin(place: PlaceRecord, timestamp: number): string {
-		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged in [[${place.path.replace(/\.md$/, "")}]]`;
+		return `- ${this.getDailyNoteLink(timestamp)} ${this.formatDateTime(new Date(timestamp)).time} logged in ${this.getAliasedPlaceLink(place)}`;
 	}
 
 	private formatTimelineLogout(place: PlaceRecord, timestamp: number, duration: string): string {
-		return `- ${this.formatDateTime(new Date(timestamp)).datetime} logged out [[${place.path.replace(/\.md$/, "")}]] · ${duration}`;
+		return `- ${this.getDailyNoteLink(timestamp)} ${this.formatDateTime(new Date(timestamp)).time} logged out ${this.getAliasedPlaceLink(place)} · ${duration}`;
 	}
 
 	private getPlaceLink(place: PlaceRecord): string {
@@ -454,11 +493,28 @@ export default class MyLocPlugin extends Plugin {
 	}
 
 	private getDailyNoteLink(timestamp: number): string {
-		return `[[${this.formatDateTime(new Date(timestamp)).iso.slice(0, 10)}]]`;
+		const settings = this.getDailyNotesSettings();
+		const target = moment(new Date(timestamp)).format(this.settings.dailyNoteFormat || settings.format);
+		const path = settings.folder ? `${settings.folder}/${target}` : target;
+		return `[[${path}|${target}]]`;
 	}
 
-	private ensurePlaceLinkIncluded(text: string, place: PlaceRecord): string {
-		const placeLink = this.getPlaceLink(place);
-		return text.includes(placeLink) ? text : `${text} · ${placeLink}`;
+	private getAliasedPlaceLink(place: PlaceRecord): string {
+		const display = place.inlineName || place.name;
+		return `[[${place.path.replace(/\.md$/, "")}|${display}]]`;
+	}
+
+	private getDailyNotesSettings(): { format: string; folder: string } {
+		const internalPlugins = (this.app as unknown as {
+			internalPlugins?: {
+				plugins?: Record<string, { instance?: { options?: Record<string, unknown> } }>;
+			};
+		}).internalPlugins;
+		const options = internalPlugins?.plugins?.["daily-notes"]?.instance?.options || {};
+		const format = typeof options["format"] === "string" && options["format"].trim()
+			? options["format"]
+			: "YYYY-MM-DD";
+		const folder = typeof options["folder"] === "string" ? options["folder"].trim().replace(/\/+$/g, "") : "";
+		return { format, folder };
 	}
 }

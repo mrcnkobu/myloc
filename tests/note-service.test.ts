@@ -60,6 +60,49 @@ test("appendUnderHeading creates the heading when it is missing", async () => {
 	assert.equal(getContent(), "# Log\n## Entries\n- item\n");
 });
 
+test("appendUnderHeadingOrAtCursorLine falls back to the current line when the heading is missing", async () => {
+	const { service } = createNoteServiceWithContent("# Log\n");
+	let line = "Today";
+	const editor = {
+		getCursor: () => ({ line: 0, ch: line.length }),
+		getLine: () => line,
+		replaceRange: (text: string) => {
+			line += text;
+		},
+	};
+
+	const result = await service.appendUnderHeadingOrAtCursorLine(
+		editor as never,
+		{} as never,
+		"Locations",
+		"[[Places/Home|Home]]"
+	);
+
+	assert.equal(result, "cursor-line");
+	assert.equal(line, "Today [[Places/Home|Home]]");
+});
+
+test("appendUnderHeadingOrAtCursorLine uses the heading when it exists", async () => {
+	const { service, getContent } = createNoteServiceWithContent("# Day\n\n#### Locations\nold\n");
+	const editor = {
+		getCursor: () => ({ line: 0, ch: 0 }),
+		getLine: () => "",
+		replaceRange: () => {
+			throw new Error("replaceRange should not be called when the heading exists");
+		},
+	};
+
+	const result = await service.appendUnderHeadingOrAtCursorLine(
+		editor as never,
+		{} as never,
+		"Locations",
+		"new"
+	);
+
+	assert.equal(result, "heading");
+	assert.equal(getContent(), "# Day\n\n#### Locations\nold\n\nnew");
+});
+
 test("buildPlaceNoteContent creates frontmatter, details and a log section", () => {
 	const { service } = createNoteServiceWithContent("");
 	const place: PlaceRecord = {

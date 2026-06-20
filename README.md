@@ -80,6 +80,7 @@ Starts one or more active place sessions.
 Behavior:
 
 - detects nearby places and preselects unlogged matches
+- lets you select saved places manually from the full known-places list, even when they are not detected nearby
 - lets you create a new place at the current location
 - always writes login entries to:
   - the place note
@@ -102,6 +103,20 @@ Behavior:
 ### `Active places`
 
 Shows the current active sessions and lets you log out from selected places.
+
+### `Create place note manually`
+
+Creates a place note without using the current device location.
+
+Use this when you want to prepare known places in advance. The command asks for:
+
+- place path
+- latitude
+- longitude
+- radius
+- optional `inline_name`
+- optional `inline_text`
+- optional tags
 
 ## Place Notes
 
@@ -154,12 +169,13 @@ When a new place is created by the plugin, the body is initialized like this:
 ```
 
 The plugin appends login/logout entries under `## Log`, using `logged in` / `logged out` wording and a daily-note link for the event date.
+The daily-note filename format is configurable in MyLoc settings. When available, the Daily Notes core plugin folder is still reused for the link path.
 
 Example:
 
 ```md
-- 2026-06-20 14:22 logged in · [[2026-06-20]]
-- 2026-06-20 16:05 logged out · 1h 43m · [[2026-06-20]]
+- [[2026-06-20]] 14:22 logged in
+- [[2026-06-20]] 16:05 logged out · 1h 43m
 ```
 
 ## Timeline
@@ -175,11 +191,11 @@ Places/_timeline/2026-06.md
 Example content:
 
 ```md
-# 2026-06
-
-- 2026-06-20 14:22 logged in [[France/Paris/Pantheon]]
-- 2026-06-20 16:05 logged out [[France/Paris/Pantheon]] · 1h 43m
+- [[2026-06-20]] 14:22 logged in [[France/Paris/Pantheon|Pantheon]]
+- [[2026-06-20]] 16:05 logged out [[France/Paris/Pantheon|Pantheon]] · 1h 43m
 ```
+
+The daily-note link uses the configured daily note filename as its display text, so folder paths stay hidden in the timeline.
 
 Timeline entries do not include the note from which the command was run.
 
@@ -189,19 +205,23 @@ Login/logout can optionally append text to the current note.
 
 These templates are configured globally in settings:
 
+- `Inline log heading`
 - `Inline login text`
 - `Inline logout text`
+
+If `Inline log heading` is set, inline logs are appended under that exact heading when it exists in the current note.
+If the heading is not found, the plugin falls back to appending the text at the end of the current cursor line.
 
 Default values:
 
 ```text
-📍 Logged in: {place} · {time} · {placeLink}
-📍 Logged out: {place} · {time} · {duration} · {placeLink}
+📍 Logged in: {place} · {time}
+📍 Logged out: {place} · {time} · {duration}
 ```
 
 Supported placeholders:
 
-- `{place}`: effective display name, meaning `inline_name` if set, otherwise `name`
+- `{place}`: wikilink to the place note, displayed using `inline_name` if set, otherwise `name`
 - `{placeName}`: canonical place `name`
 - `{inlineName}`: raw `inline_name`
 - `{placeLink}`: wikilink to the place note
@@ -215,6 +235,7 @@ Supported placeholders:
 `inline_text` is used only by `Insert current location`.
 
 If the detected place has a non-empty `inline_text`, the insert prompt lets you choose it instead of the standard full output.
+`{place}` in `inline_text` is also the aliased wikilink form.
 
 Supported placeholders in `inline_text`:
 
@@ -246,6 +267,8 @@ The plugin settings are intentionally small.
 ### Inline logging
 
 - `Inline logging enabled by default`
+- `Inline log heading`
+- `Daily note filename format`
 - `Inline login text`
 - `Inline logout text`
 
