@@ -268,7 +268,7 @@ The plugin settings are intentionally small.
 
 ### Inline logging
 
-- `Inline logging enabled by default`
+- `Inline logging enabled by default` (enabled by default for new installs)
 - `Inline log heading`
 - `Daily note filename format`
 - `Inline login text`

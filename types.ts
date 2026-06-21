@@ -67,7 +67,7 @@ export const DEFAULT_SETTINGS: MyLocSettings = {
 	placesRoot: "Places",
 	timelineFolderName: "_timeline",
 	defaultRadius: 200,
-	inlineLoggingDefault: false,
+	inlineLoggingDefault: true,
 	inlineLogHeading: "",
 	inlineLoginTemplate: "📍 Logged in: {place} · {time}",
 	inlineLogoutTemplate: "📍 Logged out: {place} · {time} · {duration}",
