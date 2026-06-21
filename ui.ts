@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, ToggleComponent } from "obsidian";
 import {
 	type ActivePlaceSession,
 	type MyLocPluginUiApi,
@@ -355,7 +355,8 @@ export class LoginModal extends Modal {
 			.filter((match) => !this.activePaths.has(match.place.path))
 			.map((match) => match.place.path);
 		this.selectedPaths = new Set(unloggedPaths);
-		this.inlinePaths = new Set(this.inlineDefault ? unloggedPaths : []);
+		// Nearby places selected for login should start with inline enabled.
+		this.inlinePaths = new Set(unloggedPaths);
 	}
 
 	onOpen() {
@@ -383,6 +384,7 @@ export class LoginModal extends Modal {
 				});
 				link.addEventListener("click", (event) => {
 					event.preventDefault();
+					this.close();
 					void this.app.workspace.openLinkText(match.place.path.replace(/\.md$/, ""), "", false);
 				});
 				setting.descEl.createEl("div", {
@@ -391,15 +393,11 @@ export class LoginModal extends Modal {
 				});
 				const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
 				inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
-				const inlineToggle = new Setting(inlineControl).addToggle((toggle) =>
-					toggle
-						.setValue(this.inlinePaths.has(match.place.path))
-						.onChange((value) => {
-							if (value) this.inlinePaths.add(match.place.path);
-							else this.inlinePaths.delete(match.place.path);
-						})
-				);
-				inlineToggle.settingEl.addClass("myloc-inline-setting");
+				const inlineToggle = new ToggleComponent(inlineControl);
+				inlineToggle.setValue(this.inlinePaths.has(match.place.path)).onChange((value) => {
+					if (value) this.inlinePaths.add(match.place.path);
+					else this.inlinePaths.delete(match.place.path);
+				});
 				inlineControl.style.display = !isActive && this.selectedPaths.has(match.place.path) ? "" : "none";
 				setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
 				setting.addToggle((selectToggle) =>
@@ -516,7 +514,7 @@ export class LogoutModal extends Modal {
 	constructor(
 		app: App,
 		private sessions: ActivePlaceSession[],
-		private currentMatches: Set<string>,
+		private currentMatchDistances: Map<string, number>,
 		private inlineDefault: boolean,
 		private onCloseResult: (result: LogoutModalResult | null) => void
 	) {
@@ -534,37 +532,64 @@ export class LogoutModal extends Modal {
 
 		const selectedSessionIds = new Set(
 			this.sessions
-				.filter((session) => this.currentMatches.has(session.placePath))
+				.filter((session) => this.currentMatchDistances.has(session.placePath))
 				.map((session) => session.id)
 		);
-		const inlineSessionIds = new Set<string>(this.inlineDefault ? this.sessions.map((s) => s.id) : []);
+		const inlineSessionIds = new Set<string>(selectedSessionIds);
 
 		if (selectedSessionIds.size === 0 && this.sessions.length > 0) {
 			selectedSessionIds.add(this.sessions[0].id);
+			inlineSessionIds.add(this.sessions[0].id);
 		}
 
 		for (const session of this.sessions) {
 			const label = session.inlineName || session.placeName;
 			const elapsed = formatDuration(Date.now() - session.startedAt);
 			const startedAt = new Date(session.startedAt).toLocaleString();
-			const setting = new Setting(contentEl).setName(label);
-			setting.descEl.createEl("span", { cls: "myloc-elapsed-chip", text: elapsed });
-			setting.descEl.append(`since ${startedAt}`);
-			if (this.currentMatches.has(session.placePath)) setting.descEl.append(" · nearby");
-			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "inline" });
-			setting.addToggle((inlineToggle) =>
-				inlineToggle.setValue(inlineSessionIds.has(session.id)).onChange((value) => {
-					if (value) inlineSessionIds.add(session.id);
-					else inlineSessionIds.delete(session.id);
-				})
-			);
+			const distance = this.currentMatchDistances.get(session.placePath);
+			const setting = new Setting(contentEl).setName(label).setDesc("");
+			setting.settingEl.addClass("myloc-place-item");
+			setting.descEl.empty();
+			const link = setting.descEl.createEl("a", {
+				text: "Open",
+				cls: "myloc-place-link",
+				href: "#",
+			});
+			link.addEventListener("click", (event) => {
+				event.preventDefault();
+				this.close();
+				void this.app.workspace.openLinkText(session.placePath.replace(/\.md$/, ""), "", false);
+			});
+			setting.descEl.createEl("div", {
+				cls: "myloc-distance-meta",
+				text: `${distance !== undefined ? `${Math.round(distance)} m away · ` : ""}since ${startedAt}`,
+			});
+			setting.descEl.createEl("div", {
+				cls: "myloc-session-meta",
+				text: `Active for ${elapsed}`,
+			});
+			const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+			inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
+			const inlineToggle = new ToggleComponent(inlineControl);
+			inlineToggle.setValue(inlineSessionIds.has(session.id)).onChange((value) => {
+				if (value) inlineSessionIds.add(session.id);
+				else inlineSessionIds.delete(session.id);
+			});
+			inlineControl.style.display = selectedSessionIds.has(session.id) ? "" : "none";
 			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log out" });
 			setting.addToggle((selectToggle) =>
 				selectToggle.setValue(selectedSessionIds.has(session.id)).onChange((value) => {
-					if (value) selectedSessionIds.add(session.id);
+					if (value) {
+						selectedSessionIds.add(session.id);
+						if (this.inlineDefault) {
+							inlineSessionIds.add(session.id);
+						}
+						inlineControl.style.display = "";
+					}
 					else {
 						selectedSessionIds.delete(session.id);
 						inlineSessionIds.delete(session.id);
+						inlineControl.style.display = "none";
 					}
 				})
 			);
@@ -601,6 +626,7 @@ export class ActivePlacesModal extends Modal {
 	constructor(
 		app: App,
 		private sessions: ActivePlaceSession[],
+		private currentMatchDistances: Map<string, number>,
 		private inlineDefault: boolean,
 		private onLogout: (sessionIds: string[], inlineSessionIds: string[]) => void,
 		private onCheckPastTime: () => void
@@ -635,29 +661,58 @@ export class ActivePlacesModal extends Modal {
 		}
 
 		const selected = new Set<string>();
-		const inlineSelected = new Set<string>(this.inlineDefault ? this.sessions.map((s) => s.id) : []);
+		const inlineSelected = new Set<string>();
 
 		for (const session of this.sessions) {
 			const label = session.inlineName || session.placeName;
 			const elapsed = formatDuration(Date.now() - session.startedAt);
 			const startedAt = new Date(session.startedAt).toLocaleString();
-			const setting = new Setting(contentEl).setName(label);
-			setting.descEl.createEl("span", { cls: "myloc-elapsed-chip", text: elapsed });
-			setting.descEl.append(`since ${startedAt}`);
-			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "inline" });
-			setting.addToggle((inlineToggle) =>
-				inlineToggle.setValue(this.inlineDefault).onChange((value) => {
-					if (value) inlineSelected.add(session.id);
-					else inlineSelected.delete(session.id);
-				})
-			);
+			const distance = this.currentMatchDistances.get(session.placePath);
+			const setting = new Setting(contentEl).setName(label).setDesc("");
+			setting.settingEl.addClass("myloc-place-item");
+			setting.descEl.empty();
+			const link = setting.descEl.createEl("a", {
+				text: "Open",
+				cls: "myloc-place-link",
+				href: "#",
+			});
+			link.addEventListener("click", (event) => {
+				event.preventDefault();
+				this.close();
+				void this.app.workspace.openLinkText(session.placePath.replace(/\.md$/, ""), "", false);
+			});
+			setting.descEl.createEl("div", {
+				cls: "myloc-distance-meta",
+				text: `${distance !== undefined ? `${Math.round(distance)} m away · ` : ""}since ${startedAt}`,
+			});
+			setting.descEl.createEl("div", {
+				cls: "myloc-session-meta",
+				text: `Active for ${elapsed}`,
+			});
+			const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+			inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
+			const inlineToggle = new ToggleComponent(inlineControl);
+			inlineToggle.setValue(false).onChange((value) => {
+				if (value) inlineSelected.add(session.id);
+				else inlineSelected.delete(session.id);
+			});
+			inlineControl.style.display = "none";
 			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log out" });
 			setting.addToggle((selectToggle) =>
 				selectToggle.setValue(false).onChange((value) => {
-					if (value) selected.add(session.id);
+					if (value) {
+						selected.add(session.id);
+						if (this.inlineDefault) {
+							inlineSelected.add(session.id);
+							inlineToggle.setValue(true);
+						}
+						inlineControl.style.display = "";
+					}
 					else {
 						selected.delete(session.id);
 						inlineSelected.delete(session.id);
+						inlineToggle.setValue(false);
+						inlineControl.style.display = "none";
 					}
 				})
 			);

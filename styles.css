@@ -50,6 +50,12 @@
 	color: var(--text-faint);
 }
 
+.myloc-session-meta {
+	margin-top: 1px;
+	font-size: 0.78em;
+	color: var(--text-muted);
+}
+
 /* Section divider and label for secondary actions in login modal */
 .myloc-section-divider {
 	height: 1px;
@@ -80,15 +86,6 @@
 	display: flex;
 	align-items: center;
 	margin-right: 6px;
-}
-
-.myloc-inline-setting {
-	border: 0;
-	padding: 0;
-}
-
-.myloc-inline-setting .setting-item-control {
-	padding: 0;
 }
 
 .myloc-place-link {

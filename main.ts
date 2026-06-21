@@ -79,7 +79,7 @@ export default class MyLocPlugin extends Plugin {
 			id: "active-places",
 			name: "Active places",
 			callback: () => {
-				this.showActivePlaces();
+				void this.showActivePlaces();
 			},
 		});
 
@@ -287,12 +287,12 @@ export default class MyLocPlugin extends Plugin {
 		let selectedIds = sessionIds;
 		let inlineIds = inlineSessionIds ?? [];
 		if (!selectedIds) {
-			const currentMatches = await this.getCurrentNearbyActivePaths();
+			const currentMatchDistances = await this.getCurrentNearbyActiveDistances();
 			const result = await new Promise<{ selectedSessionIds: string[]; inlineSessionIds: string[] } | null>((resolve) => {
 				new LogoutModal(
 					this.app,
 					this.activeSessions,
-					currentMatches,
+					currentMatchDistances,
 					this.settings.inlineLoggingDefault,
 					resolve
 				).open();
@@ -330,10 +330,12 @@ export default class MyLocPlugin extends Plugin {
 		new Notice(`Logged out from ${sessionsToEnd.length} place${sessionsToEnd.length === 1 ? "" : "s"}`);
 	}
 
-	private showActivePlaces() {
+	private async showActivePlaces() {
+		const currentMatchDistances = await this.getCurrentNearbyActiveDistances();
 		new ActivePlacesModal(
 			this.app,
 			this.activeSessions,
+			currentMatchDistances,
 			this.settings.inlineLoggingDefault,
 			(sessionIds, inlineSessionIds) => {
 				void this.logOut(sessionIds, inlineSessionIds);
@@ -374,14 +376,18 @@ export default class MyLocPlugin extends Plugin {
 		).open();
 	}
 
-	private async getCurrentNearbyActivePaths(): Promise<Set<string>> {
+	private async getCurrentNearbyActiveDistances(): Promise<Map<string, number>> {
 		try {
 			const location = await this.locationService.getLocation();
 			const matches = this.locationService.findMatchingPlaces(location);
 			const activePaths = new Set(this.activeSessions.map((session) => session.placePath));
-			return new Set(matches.map((match) => match.place.path).filter((path) => activePaths.has(path)));
+			return new Map(
+				matches
+					.filter((match) => activePaths.has(match.place.path))
+					.map((match) => [match.place.path, match.distance])
+			);
 		} catch {
-			return new Set<string>();
+			return new Map<string, number>();
 		}
 	}
 
