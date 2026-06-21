@@ -12,3 +12,90 @@
 .myloc-place-textarea {
 	width: 100%;
 }
+
+/* Dim already-active sessions */
+.myloc-active-session {
+	opacity: 0.5;
+}
+
+/* Elapsed time chip on active sessions */
+.myloc-elapsed-chip {
+	display: inline;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	padding: 1px 7px;
+	border-radius: 10px;
+	font-size: 0.78em;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	margin-right: 5px;
+}
+
+/* Distance badge in login modal */
+.myloc-distance-badge {
+	display: inline;
+	font-family: var(--font-monospace);
+	font-size: 0.8em;
+	color: var(--text-muted);
+	background: var(--background-modifier-form-field);
+	border: 1px solid var(--background-modifier-border);
+	padding: 1px 5px;
+	border-radius: 4px;
+	margin-right: 5px;
+}
+
+.myloc-distance-meta {
+	margin-top: 2px;
+	font-size: 0.78em;
+	color: var(--text-faint);
+}
+
+/* Section divider and label for secondary actions in login modal */
+.myloc-section-divider {
+	height: 1px;
+	background: var(--background-modifier-border);
+	margin: 8px 18px;
+}
+
+.myloc-section-label {
+	font-size: 0.72em;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--text-muted);
+	margin: 10px 0 2px;
+	padding: 0 18px;
+}
+
+/* Labels before per-place/per-session inline and action toggles */
+.myloc-control-label {
+	font-size: 0.72em;
+	color: var(--text-muted);
+	align-self: center;
+	margin-left: 8px;
+	margin-right: 3px;
+}
+
+.myloc-inline-control {
+	display: flex;
+	align-items: center;
+	margin-right: 6px;
+}
+
+.myloc-inline-setting {
+	border: 0;
+	padding: 0;
+}
+
+.myloc-inline-setting .setting-item-control {
+	padding: 0;
+}
+
+.myloc-place-link {
+	color: var(--link-color);
+	text-decoration: none;
+}
+
+.myloc-place-link:hover {
+	text-decoration: underline;
+}

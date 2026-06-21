@@ -6,7 +6,7 @@ import {
 	type PlaceRecord,
 	TIMEZONES,
 } from "./types";
-import { getSystemTimezone } from "./utils";
+import { formatDuration, getSystemTimezone } from "./utils";
 
 export interface CreatePlaceInput {
 	path: string;
@@ -20,13 +20,14 @@ export interface CreatePlaceInput {
 
 export interface LoginModalResult {
 	selectedPaths: string[];
+	inlinePaths: string[];
 	createPlace?: CreatePlaceInput;
-	writeInline: boolean;
+	createPlaceWriteInline: boolean;
 }
 
 export interface LogoutModalResult {
 	selectedSessionIds: string[];
-	writeInline: boolean;
+	inlineSessionIds: string[];
 }
 
 export interface InsertLocationPromptResult {
@@ -43,6 +44,13 @@ export interface PastTimeMatch {
 	placePath: string;
 	placeLabel: string;
 	startedAtLabel: string;
+}
+
+export interface PastTimeContext {
+	placePath: string;
+	placeLabel: string;
+	eventLabel: string;
+	action: "in" | "out";
 }
 
 export class ManualPlaceSelectionModal extends Modal {
@@ -330,7 +338,7 @@ export class InsertLocationPromptModal extends Modal {
 export class LoginModal extends Modal {
 	private result: LoginModalResult | null = null;
 	private selectedPaths: Set<string>;
-	private writeInline: boolean;
+	private inlinePaths: Set<string>;
 	private createPlace: CreatePlaceInput | undefined;
 
 	constructor(
@@ -343,10 +351,11 @@ export class LoginModal extends Modal {
 		private onCloseResult: (result: LoginModalResult | null) => void
 	) {
 		super(app);
-		this.selectedPaths = new Set(
-			this.matches.filter((match) => !this.activePaths.has(match.place.path)).map((match) => match.place.path)
-		);
-		this.writeInline = this.inlineDefault;
+		const unloggedPaths = this.matches
+			.filter((match) => !this.activePaths.has(match.place.path))
+			.map((match) => match.place.path);
+		this.selectedPaths = new Set(unloggedPaths);
+		this.inlinePaths = new Set(this.inlineDefault ? unloggedPaths : []);
 	}
 
 	onOpen() {
@@ -357,36 +366,58 @@ export class LoginModal extends Modal {
 			text: "Select one or more nearby places, or create a new one at the current location.",
 			cls: "setting-item-description",
 		});
-		const createdPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
-		const manualPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
-		if (this.createPlace) {
-			createdPlaceSummary.setText(`New place ready: ${this.createPlace.path} · ${this.createPlace.radius} m`);
-		}
-		if (this.selectedPaths.size > 0) {
-			const manualOnlyCount = Array.from(this.selectedPaths).filter((path) =>
-				!this.matches.some((match) => match.place.path === path)
-			).length;
-			if (manualOnlyCount > 0) {
-				manualPlaceSummary.setText(
-					`Manually selected: ${manualOnlyCount} place${manualOnlyCount === 1 ? "" : "s"}`
-				);
-			}
-		}
 
 		if (this.matches.length > 0) {
 			contentEl.createEl("h4", { text: "Nearby places" });
 			for (const match of this.matches) {
-				const label = match.place.inlineName || match.place.name;
-				const setting = new Setting(contentEl).setName(match.place.name).setDesc(
-					`${Math.round(match.distance)} m away${label !== match.place.name ? ` · inline: ${label}` : ""}${this.activePaths.has(match.place.path) ? " · already active" : ""}`
-				);
-				setting.addToggle((toggle) =>
+				const inlineLabel = match.place.inlineName.trim() || match.place.name;
+				const isActive = this.activePaths.has(match.place.path);
+				const setting = new Setting(contentEl).setName(inlineLabel).setDesc("");
+				setting.settingEl.addClass("myloc-place-item");
+				if (isActive) setting.settingEl.addClass("myloc-active-session");
+				setting.descEl.empty();
+				const link = setting.descEl.createEl("a", {
+					text: "Open",
+					cls: "myloc-place-link",
+					href: "#",
+				});
+				link.addEventListener("click", (event) => {
+					event.preventDefault();
+					void this.app.workspace.openLinkText(match.place.path.replace(/\.md$/, ""), "", false);
+				});
+				setting.descEl.createEl("div", {
+					cls: "myloc-distance-meta",
+					text: `${Math.round(match.distance)} m away${isActive ? " · already active" : ""}`,
+				});
+				const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+				inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
+				const inlineToggle = new Setting(inlineControl).addToggle((toggle) =>
 					toggle
-						.setValue(this.selectedPaths.has(match.place.path))
-						.setDisabled(this.activePaths.has(match.place.path))
+						.setValue(this.inlinePaths.has(match.place.path))
 						.onChange((value) => {
-							if (value) this.selectedPaths.add(match.place.path);
-							else this.selectedPaths.delete(match.place.path);
+							if (value) this.inlinePaths.add(match.place.path);
+							else this.inlinePaths.delete(match.place.path);
+						})
+				);
+				inlineToggle.settingEl.addClass("myloc-inline-setting");
+				inlineControl.style.display = !isActive && this.selectedPaths.has(match.place.path) ? "" : "none";
+				setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
+				setting.addToggle((selectToggle) =>
+					selectToggle
+						.setValue(!isActive && this.selectedPaths.has(match.place.path))
+						.setDisabled(isActive)
+						.onChange((value) => {
+							if (value) {
+								this.selectedPaths.add(match.place.path);
+								if (this.inlineDefault) {
+									this.inlinePaths.add(match.place.path);
+								}
+								inlineControl.style.display = "";
+							} else {
+								this.selectedPaths.delete(match.place.path);
+								this.inlinePaths.delete(match.place.path);
+								inlineControl.style.display = "none";
+							}
 						})
 				);
 			}
@@ -394,14 +425,21 @@ export class LoginModal extends Modal {
 			contentEl.createEl("p", { text: "No nearby saved places detected.", cls: "setting-item-description" });
 		}
 
-		new Setting(contentEl)
-			.setName("Also append inline")
-			.setDesc("Write the inline log text into the current note")
-			.addToggle((toggle) =>
-				toggle.setValue(this.writeInline).onChange((value) => {
-					this.writeInline = value;
-				})
-			);
+		contentEl.createDiv({ cls: "myloc-section-divider" });
+
+		const createdPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
+		const manualPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
+		if (this.createPlace) {
+			createdPlaceSummary.setText(`New place ready: ${this.createPlace.path} · ${this.createPlace.radius} m`);
+		}
+		if (this.selectedPaths.size > 0) {
+			const manualOnlyCount = Array.from(this.selectedPaths).filter(
+				(path) => !this.matches.some((match) => match.place.path === path)
+			).length;
+			if (manualOnlyCount > 0) {
+				manualPlaceSummary.setText(`Manually selected: ${manualOnlyCount} place${manualOnlyCount === 1 ? "" : "s"}`);
+			}
+		}
 
 		new Setting(contentEl)
 			.setName("Create new place here")
@@ -418,7 +456,7 @@ export class LoginModal extends Modal {
 
 		new Setting(contentEl)
 			.setName("Select saved places manually")
-			.setDesc("Use saved places from the places folder even if they are not detected nearby")
+			.setDesc("Use saved places from the places folder even if not detected nearby")
 			.addButton((btn) =>
 				btn.setButtonText("Choose").onClick(() => {
 					new ManualPlaceSelectionModal(
@@ -428,19 +466,20 @@ export class LoginModal extends Modal {
 						(result) => {
 							if (!result) return;
 							this.selectedPaths.clear();
+							this.inlinePaths.clear();
 							for (const path of result) {
 								this.selectedPaths.add(path);
+								if (this.inlineDefault) {
+									this.inlinePaths.add(path);
+								}
 							}
-							manualPlaceSummary.setText(
-								result.length > 0
-									? `Manually selected: ${result.length} place${result.length === 1 ? "" : "s"}`
-									: ""
-							);
 							this.onOpen();
 						}
 					).open();
 				})
 			);
+
+		contentEl.createDiv({ cls: "myloc-section-divider" });
 
 		new Setting(contentEl)
 			.addButton((btn) =>
@@ -451,8 +490,9 @@ export class LoginModal extends Modal {
 					}
 					this.result = {
 						selectedPaths: Array.from(this.selectedPaths),
+						inlinePaths: Array.from(this.inlinePaths).filter((p) => this.selectedPaths.has(p)),
 						createPlace: this.createPlace,
-						writeInline: this.writeInline,
+						createPlaceWriteInline: this.inlineDefault,
 					};
 					this.close();
 				})
@@ -497,7 +537,7 @@ export class LogoutModal extends Modal {
 				.filter((session) => this.currentMatches.has(session.placePath))
 				.map((session) => session.id)
 		);
-		let writeInline = this.inlineDefault;
+		const inlineSessionIds = new Set<string>(this.inlineDefault ? this.sessions.map((s) => s.id) : []);
 
 		if (selectedSessionIds.size === 0 && this.sessions.length > 0) {
 			selectedSessionIds.add(this.sessions[0].id);
@@ -505,26 +545,30 @@ export class LogoutModal extends Modal {
 
 		for (const session of this.sessions) {
 			const label = session.inlineName || session.placeName;
+			const elapsed = formatDuration(Date.now() - session.startedAt);
 			const startedAt = new Date(session.startedAt).toLocaleString();
-			const setting = new Setting(contentEl).setName(label).setDesc(
-				`${startedAt}${this.currentMatches.has(session.placePath) ? " · nearby" : ""}`
+			const setting = new Setting(contentEl).setName(label);
+			setting.descEl.createEl("span", { cls: "myloc-elapsed-chip", text: elapsed });
+			setting.descEl.append(`since ${startedAt}`);
+			if (this.currentMatches.has(session.placePath)) setting.descEl.append(" · nearby");
+			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "inline" });
+			setting.addToggle((inlineToggle) =>
+				inlineToggle.setValue(inlineSessionIds.has(session.id)).onChange((value) => {
+					if (value) inlineSessionIds.add(session.id);
+					else inlineSessionIds.delete(session.id);
+				})
 			);
-			setting.addToggle((toggle) =>
-				toggle.setValue(selectedSessionIds.has(session.id)).onChange((value) => {
+			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log out" });
+			setting.addToggle((selectToggle) =>
+				selectToggle.setValue(selectedSessionIds.has(session.id)).onChange((value) => {
 					if (value) selectedSessionIds.add(session.id);
-					else selectedSessionIds.delete(session.id);
+					else {
+						selectedSessionIds.delete(session.id);
+						inlineSessionIds.delete(session.id);
+					}
 				})
 			);
 		}
-
-		new Setting(contentEl)
-			.setName("Also append inline")
-			.setDesc("Write the inline log text into the current note")
-			.addToggle((toggle) =>
-				toggle.setValue(writeInline).onChange((value) => {
-					writeInline = value;
-				})
-			);
 
 		new Setting(contentEl)
 			.addButton((btn) =>
@@ -535,7 +579,7 @@ export class LogoutModal extends Modal {
 					}
 					this.result = {
 						selectedSessionIds: Array.from(selectedSessionIds),
-						writeInline,
+						inlineSessionIds: Array.from(inlineSessionIds).filter((id) => selectedSessionIds.has(id)),
 					};
 					this.close();
 				})
@@ -558,7 +602,7 @@ export class ActivePlacesModal extends Modal {
 		app: App,
 		private sessions: ActivePlaceSession[],
 		private inlineDefault: boolean,
-		private onLogout: (sessionIds: string[], writeInline: boolean) => void,
+		private onLogout: (sessionIds: string[], inlineSessionIds: string[]) => void,
 		private onCheckPastTime: () => void
 	) {
 		super(app);
@@ -577,7 +621,7 @@ export class ActivePlacesModal extends Modal {
 			contentEl.createEl("p", { text: "No active places.", cls: "setting-item-description" });
 			new Setting(contentEl)
 				.addButton((btn) =>
-					btn.setButtonText("Check past time...").setCta().onClick(() => {
+					btn.setButtonText("Where was I at…").setCta().onClick(() => {
 						this.close();
 						this.onCheckPastTime();
 					})
@@ -591,33 +635,37 @@ export class ActivePlacesModal extends Modal {
 		}
 
 		const selected = new Set<string>();
-		let writeInline = this.inlineDefault;
+		const inlineSelected = new Set<string>(this.inlineDefault ? this.sessions.map((s) => s.id) : []);
 
 		for (const session of this.sessions) {
 			const label = session.inlineName || session.placeName;
-			new Setting(contentEl)
-				.setName(label)
-				.setDesc(new Date(session.startedAt).toLocaleString())
-				.addToggle((toggle) =>
-					toggle.setValue(false).onChange((value) => {
-						if (value) selected.add(session.id);
-						else selected.delete(session.id);
-					})
-				);
+			const elapsed = formatDuration(Date.now() - session.startedAt);
+			const startedAt = new Date(session.startedAt).toLocaleString();
+			const setting = new Setting(contentEl).setName(label);
+			setting.descEl.createEl("span", { cls: "myloc-elapsed-chip", text: elapsed });
+			setting.descEl.append(`since ${startedAt}`);
+			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "inline" });
+			setting.addToggle((inlineToggle) =>
+				inlineToggle.setValue(this.inlineDefault).onChange((value) => {
+					if (value) inlineSelected.add(session.id);
+					else inlineSelected.delete(session.id);
+				})
+			);
+			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log out" });
+			setting.addToggle((selectToggle) =>
+				selectToggle.setValue(false).onChange((value) => {
+					if (value) selected.add(session.id);
+					else {
+						selected.delete(session.id);
+						inlineSelected.delete(session.id);
+					}
+				})
+			);
 		}
 
 		new Setting(contentEl)
-			.setName("Also append inline")
-			.setDesc("Write the inline log text into the current note")
-			.addToggle((toggle) =>
-				toggle.setValue(writeInline).onChange((value) => {
-					writeInline = value;
-				})
-			);
-
-		new Setting(contentEl)
 			.addButton((btn) =>
-				btn.setButtonText("Check past time...").onClick(() => {
+				btn.setButtonText("Where was I at…").onClick(() => {
 					this.close();
 					this.onCheckPastTime();
 				})
@@ -629,7 +677,10 @@ export class ActivePlacesModal extends Modal {
 						return;
 					}
 					this.close();
-					this.onLogout(Array.from(selected), writeInline);
+					this.onLogout(
+						Array.from(selected),
+						Array.from(inlineSelected).filter((id) => selected.has(id))
+					);
 				})
 			)
 			.addButton((btn) =>
@@ -659,9 +710,9 @@ export class PastTimeInputModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl("h3", { text: "Check past time" });
+		contentEl.createEl("h3", { text: "Where was I at?" });
 		contentEl.createEl("p", {
-			text: "Find which places were active at a specific date and time based on the timeline.",
+			text: "Look up which places were active at a specific date and time.",
 			cls: "setting-item-description",
 		});
 
@@ -714,7 +765,9 @@ export class PastTimeResultsModal extends Modal {
 	constructor(
 		app: App,
 		private targetLabel: string,
-		private matches: PastTimeMatch[]
+		private matches: PastTimeMatch[],
+		private before?: PastTimeContext,
+		private after?: PastTimeContext,
 	) {
 		super(app);
 	}
@@ -730,22 +783,61 @@ export class PastTimeResultsModal extends Modal {
 
 		if (this.matches.length === 0) {
 			contentEl.createEl("p", {
-				text: "No active places were found for that time.",
+				text: "No active places at this time.",
 				cls: "setting-item-description",
 			});
+			if (this.before) {
+				contentEl.createDiv({ cls: "myloc-section-divider" });
+				contentEl.createEl("p", { text: "Before", cls: "myloc-section-label" });
+				this.renderContextRow(contentEl, this.before);
+			}
+			if (this.after) {
+				contentEl.createDiv({ cls: "myloc-section-divider" });
+				contentEl.createEl("p", { text: "After", cls: "myloc-section-label" });
+				this.renderContextRow(contentEl, this.after);
+			}
 			return;
 		}
 
 		for (const match of this.matches) {
 			new Setting(contentEl)
-				.setName(`[[${match.placePath}|${match.placeLabel}]]`)
-				.setDesc(`Active since ${match.startedAtLabel}`);
+				.setName(match.placeLabel)
+				.setDesc(`Active since ${match.startedAtLabel}`)
+				.addButton((btn) =>
+					btn.setButtonText("Open note").onClick(() => {
+						this.close();
+						void this.app.workspace.openLinkText(match.placePath.replace(/\.md$/, ""), "");
+					})
+				);
 		}
+	}
+
+	private renderContextRow(contentEl: HTMLElement, ctx: PastTimeContext) {
+		new Setting(contentEl)
+			.setName(ctx.placeLabel)
+			.setDesc(`Logged ${ctx.action === "in" ? "in" : "out"} · ${ctx.eventLabel}`)
+			.addButton((btn) =>
+				btn.setButtonText("Open note").onClick(() => {
+					this.close();
+					void this.app.workspace.openLinkText(ctx.placePath.replace(/\.md$/, ""), "");
+				})
+			);
 	}
 
 	onClose() {
 		this.contentEl.empty();
 	}
+}
+
+function buildPlaceholderDesc(el: HTMLElement): void {
+	const placeholders = ["{place}", "{placeName}", "{inlineName}", "{placeLink}", "{date}", "{time}", "{datetime}", "{duration}"];
+	el.append("Placeholders: ");
+	for (const ph of placeholders) {
+		el.createEl("code", { text: ph });
+		el.append(" ");
+	}
+	el.createEl("br");
+	el.append("{place} is a wikilink with a readable alias.");
 }
 
 export class MyLocSettingTab extends PluginSettingTab {
@@ -827,11 +919,8 @@ export class MyLocSettingTab extends PluginSettingTab {
 				})
 			);
 
-		const placeholderDesc = "Placeholders: {place}, {placeName}, {inlineName}, {placeLink}, {date}, {time}, {datetime}, {duration}. {place} is a wikilink with a readable alias.";
-
-		new Setting(containerEl)
+		const loginTemplateSetting = new Setting(containerEl)
 			.setName("Inline login text")
-			.setDesc(placeholderDesc)
 			.addTextArea((text) => {
 				text.setValue(this.plugin.settings.inlineLoginTemplate).onChange(async (value) => {
 					this.plugin.settings.inlineLoginTemplate = value;
@@ -839,10 +928,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 				});
 				text.inputEl.rows = 2;
 			});
+		buildPlaceholderDesc(loginTemplateSetting.descEl);
 
-		new Setting(containerEl)
+		const logoutTemplateSetting = new Setting(containerEl)
 			.setName("Inline logout text")
-			.setDesc(placeholderDesc)
 			.addTextArea((text) => {
 				text.setValue(this.plugin.settings.inlineLogoutTemplate).onChange(async (value) => {
 					this.plugin.settings.inlineLogoutTemplate = value;
@@ -850,6 +939,7 @@ export class MyLocSettingTab extends PluginSettingTab {
 				});
 				text.inputEl.rows = 2;
 			});
+		buildPlaceholderDesc(logoutTemplateSetting.descEl);
 
 		new Setting(containerEl).setName("Location").setHeading();
 

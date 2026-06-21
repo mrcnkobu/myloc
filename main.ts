@@ -149,14 +149,17 @@ export default class MyLocPlugin extends Plugin {
 
 			notice.hide();
 
-			const prompt = await new Promise<{ action: "login-and-insert" | "insert-only" | "cancel"; useInlineText: boolean }>((resolve) => {
-				new InsertLocationPromptModal(
-					this.app,
-					unloggedNearby.length,
-					Boolean(place?.inlineText?.trim()),
-					resolve
-				).open();
-			});
+			const hasInlineText = Boolean(place?.inlineText?.trim());
+			const prompt = (unloggedNearby.length === 0 && !hasInlineText)
+				? { action: "insert-only" as const, useInlineText: false }
+				: await new Promise<{ action: "login-and-insert" | "insert-only" | "cancel"; useInlineText: boolean }>((resolve) => {
+					new InsertLocationPromptModal(
+						this.app,
+						unloggedNearby.length,
+						hasInlineText,
+						resolve
+					).open();
+				});
 
 			if (prompt.action === "cancel") {
 				return;
@@ -209,8 +212,9 @@ export default class MyLocPlugin extends Plugin {
 		const allPlaces = this.locationService.getAllPlaces();
 		const result = await new Promise<{
 			selectedPaths: string[];
+			inlinePaths: string[];
 			createPlace?: CreatePlaceInput;
-			writeInline: boolean;
+			createPlaceWriteInline: boolean;
 		} | null>((resolve) => {
 			new LoginModal(
 				this.app,
@@ -225,6 +229,7 @@ export default class MyLocPlugin extends Plugin {
 
 		if (!result) return 0;
 
+		const inlinePathSet = new Set(result.inlinePaths);
 		const placesByPath = new Map(allPlaces.map((place) => [place.path, place]));
 		const selectedPlaces: PlaceRecord[] = [];
 		for (const path of result.selectedPaths) {
@@ -237,6 +242,9 @@ export default class MyLocPlugin extends Plugin {
 		if (result.createPlace) {
 			const created = await this.createPlaceAtLocation(location, result.createPlace);
 			selectedPlaces.push(created);
+			if (result.createPlaceWriteInline) {
+				inlinePathSet.add(created.path);
+			}
 		}
 
 		if (selectedPlaces.length === 0) return 0;
@@ -260,7 +268,7 @@ export default class MyLocPlugin extends Plugin {
 			await this.appendPlaceLog(place, this.formatLoginEvent(session.startedAt));
 			await this.appendTimelineLog(this.formatTimelineLogin(place, session.startedAt));
 
-			if (result.writeInline) {
+			if (inlinePathSet.has(place.path)) {
 				await this.appendInlineLog(this.settings.inlineLoginTemplate, place, session.startedAt);
 			}
 			loggedInCount++;
@@ -270,17 +278,17 @@ export default class MyLocPlugin extends Plugin {
 		return loggedInCount;
 	}
 
-	private async logOut(sessionIds?: string[], writeInline = this.settings.inlineLoggingDefault) {
+	private async logOut(sessionIds?: string[], inlineSessionIds?: string[]) {
 		if (this.activeSessions.length === 0) {
 			new Notice("No active places");
 			return;
 		}
 
 		let selectedIds = sessionIds;
-		let inline = writeInline;
+		let inlineIds = inlineSessionIds ?? [];
 		if (!selectedIds) {
 			const currentMatches = await this.getCurrentNearbyActivePaths();
-			const result = await new Promise<{ selectedSessionIds: string[]; writeInline: boolean } | null>((resolve) => {
+			const result = await new Promise<{ selectedSessionIds: string[]; inlineSessionIds: string[] } | null>((resolve) => {
 				new LogoutModal(
 					this.app,
 					this.activeSessions,
@@ -291,7 +299,7 @@ export default class MyLocPlugin extends Plugin {
 			});
 			if (!result) return;
 			selectedIds = result.selectedSessionIds;
-			inline = result.writeInline;
+			inlineIds = result.inlineSessionIds;
 		}
 
 		const sessionsToEnd = this.activeSessions.filter((session) => selectedIds.includes(session.id));
@@ -312,7 +320,7 @@ export default class MyLocPlugin extends Plugin {
 			await this.appendPlaceLog(place, this.formatLogoutEvent(endedAt, duration));
 			await this.appendTimelineLog(this.formatTimelineLogout(place, endedAt, duration));
 
-			if (inline) {
+			if (inlineIds.includes(session.id)) {
 				await this.appendInlineLog(this.settings.inlineLogoutTemplate, place, endedAt, duration);
 			}
 		}
@@ -327,8 +335,8 @@ export default class MyLocPlugin extends Plugin {
 			this.app,
 			this.activeSessions,
 			this.settings.inlineLoggingDefault,
-			(sessionIds, writeInline) => {
-				void this.logOut(sessionIds, writeInline);
+			(sessionIds, inlineSessionIds) => {
+				void this.logOut(sessionIds, inlineSessionIds);
 			},
 			() => {
 				void this.checkPastTime();
@@ -356,11 +364,13 @@ export default class MyLocPlugin extends Plugin {
 			return;
 		}
 
-		const matches = await this.findPlacesActiveAt(targetMoment);
+		const result = await this.findPlacesActiveAt(targetMoment);
 		new PastTimeResultsModal(
 			this.app,
 			targetMoment.format("YYYY-MM-DD HH:mm"),
-			matches
+			result.matches,
+			result.before,
+			result.after,
 		).open();
 	}
 
@@ -556,17 +566,19 @@ export default class MyLocPlugin extends Plugin {
 		return { format, folder };
 	}
 
-	private async findPlacesActiveAt(targetMoment: moment.Moment): Promise<Array<{
-		placePath: string;
-		placeLabel: string;
-		startedAtLabel: string;
-	}>> {
+	private async findPlacesActiveAt(targetMoment: moment.Moment): Promise<{
+		matches: Array<{ placePath: string; placeLabel: string; startedAtLabel: string }>;
+		before?: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" };
+		after?: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" };
+	}> {
 		const timelineRoot = `${this.locationService.getTimelineFolder()}/`;
 		const files = this.app.vault.getMarkdownFiles()
 			.filter((file) => file.path.startsWith(timelineRoot))
 			.sort((a, b) => a.path.localeCompare(b.path));
 		const activeByPlace = new Map<string, { placeLabel: string; startedAtLabel: string; startedAt: moment.Moment }>();
 		const dailyFormat = this.settings.dailyNoteFormat || this.getDailyNotesSettings().format;
+		let lastEventBefore: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" } | undefined;
+		let firstEventAfter: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" } | undefined;
 
 		for (const file of files) {
 			const content = await this.app.vault.read(file);
@@ -576,12 +588,24 @@ export default class MyLocPlugin extends Plugin {
 					continue;
 				}
 
-				const basename = parsed.dailyNoteLabel;
-				const eventMoment = moment(`${basename} ${parsed.time}`, `${dailyFormat} HH:mm`, true);
-				if (!eventMoment.isValid() || eventMoment.isAfter(targetMoment)) {
+				const eventMoment = moment(`${parsed.dailyNoteLabel} ${parsed.time}`, `${dailyFormat} HH:mm`, true);
+				if (!eventMoment.isValid()) {
 					continue;
 				}
 
+				const eventContext = {
+					placePath: parsed.placePath,
+					placeLabel: parsed.placeLabel,
+					eventLabel: `${parsed.dailyNoteLabel} ${parsed.time}`,
+					action: parsed.action as "in" | "out",
+				};
+
+				if (eventMoment.isAfter(targetMoment)) {
+					if (!firstEventAfter) firstEventAfter = eventContext;
+					continue;
+				}
+
+				lastEventBefore = eventContext;
 				if (parsed.action === "in") {
 					activeByPlace.set(parsed.placePath, {
 						placeLabel: parsed.placeLabel,
@@ -594,7 +618,7 @@ export default class MyLocPlugin extends Plugin {
 			}
 		}
 
-		return Array.from(activeByPlace.entries())
+		const matches = Array.from(activeByPlace.entries())
 			.map(([placePath, value]) => ({
 				placePath,
 				placeLabel: value.placeLabel,
@@ -607,5 +631,11 @@ export default class MyLocPlugin extends Plugin {
 				placeLabel: item.placeLabel,
 				startedAtLabel: item.startedAtLabel,
 			}));
+
+		return {
+			matches,
+			before: matches.length === 0 ? lastEventBefore : undefined,
+			after: matches.length === 0 ? firstEventAfter : undefined,
+		};
 	}
 }
