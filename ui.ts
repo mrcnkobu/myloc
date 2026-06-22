@@ -962,6 +962,7 @@ export class MyLocSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		const settings = this.myLocPlugin.getMyLocSettings();
 		containerEl.empty();
 
 		new Setting(containerEl).setName("Storage").setHeading();
@@ -970,10 +971,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Places root folder")
 			.setDesc("All place files and the timeline folder live here")
 			.addText((text: TextComponent) => {
-				text.setValue(this.myLocPlugin.settings.placesRoot);
+				text.setValue(settings.placesRoot);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.placesRoot = value.trim();
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.placesRoot = value.trim();
+					});
 				});
 			});
 
@@ -981,10 +983,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Timeline folder name")
 			.setDesc("Created inside the places root folder")
 			.addText((text: TextComponent) => {
-				text.setValue(this.myLocPlugin.settings.timelineFolderName);
+				text.setValue(settings.timelineFolderName);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.timelineFolderName = value.trim();
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.timelineFolderName = value.trim();
+					});
 				});
 			});
 
@@ -992,12 +995,13 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Default radius")
 			.setDesc("Used when creating a new place")
 			.addText((text: TextComponent) => {
-				text.setValue(String(this.myLocPlugin.settings.defaultRadius));
+				text.setValue(String(settings.defaultRadius));
 				text.onChange((value) => {
 					const parsed = parseInt(value, 10);
 					if (!Number.isNaN(parsed) && parsed > 0) {
-						this.myLocPlugin.settings.defaultRadius = parsed;
-						void this.myLocPlugin.saveSettings();
+						void this.myLocPlugin.updateMyLocSettings((current) => {
+							current.defaultRadius = parsed;
+						});
 					}
 				});
 			});
@@ -1008,10 +1012,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Inline logging enabled by default")
 			.setDesc("Commands can still override this per action")
 			.addToggle((toggle: ToggleComponent) => {
-				toggle.setValue(this.myLocPlugin.settings.inlineLoggingDefault);
+				toggle.setValue(settings.inlineLoggingDefault);
 				toggle.onChange((value) => {
-					this.myLocPlugin.settings.inlineLoggingDefault = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.inlineLoggingDefault = value;
+					});
 				});
 			});
 
@@ -1019,10 +1024,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Inline log heading")
 			.setDesc("Append inline logs under this exact heading when it exists. Leave empty to append at the current cursor line.")
 			.addText((text: TextComponent) => {
-				text.setValue(this.myLocPlugin.settings.inlineLogHeading);
+				text.setValue(settings.inlineLogHeading);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.inlineLogHeading = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.inlineLogHeading = value;
+					});
 				});
 			});
 
@@ -1030,20 +1036,22 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Daily note filename format")
 			.setDesc("Used for daily-note links written into place logs. Uses Moment.js tokens, for example YYYY-MM-DD or YYYY-MM-DD_ddd.")
 			.addText((text: TextComponent) => {
-				text.setValue(this.myLocPlugin.settings.dailyNoteFormat);
+				text.setValue(settings.dailyNoteFormat);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.dailyNoteFormat = value.trim() || "YYYY-MM-DD";
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.dailyNoteFormat = value.trim() || "YYYY-MM-DD";
+					});
 				});
 			});
 
 		const loginTemplateSetting = new Setting(containerEl)
 			.setName("Inline login text")
 			.addTextArea((text: TextAreaComponent) => {
-				text.setValue(this.myLocPlugin.settings.inlineLoginTemplate);
+				text.setValue(settings.inlineLoginTemplate);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.inlineLoginTemplate = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.inlineLoginTemplate = value;
+					});
 				});
 				text.inputEl.rows = 2;
 			});
@@ -1052,10 +1060,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 		const logoutTemplateSetting = new Setting(containerEl)
 			.setName("Inline logout text")
 			.addTextArea((text: TextAreaComponent) => {
-				text.setValue(this.myLocPlugin.settings.inlineLogoutTemplate);
+				text.setValue(settings.inlineLogoutTemplate);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.inlineLogoutTemplate = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.inlineLogoutTemplate = value;
+					});
 				});
 				text.inputEl.rows = 2;
 			});
@@ -1067,10 +1076,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Allow reverse geocoding")
 			.setDesc("Use an external service to get human-readable addresses")
 			.addToggle((toggle: ToggleComponent) => {
-				toggle.setValue(this.myLocPlugin.settings.privacy.allowReverseGeocoding);
+				toggle.setValue(settings.privacy.allowReverseGeocoding);
 				toggle.onChange((value) => {
-					this.myLocPlugin.settings.privacy.allowReverseGeocoding = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.privacy.allowReverseGeocoding = value;
+					});
 				});
 			});
 
@@ -1078,10 +1088,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Allow approximate IP fallback")
 			.setDesc("Use IP-based location when device geolocation is unavailable")
 			.addToggle((toggle: ToggleComponent) => {
-				toggle.setValue(this.myLocPlugin.settings.privacy.allowIpFallback);
+				toggle.setValue(settings.privacy.allowIpFallback);
 				toggle.onChange((value) => {
-					this.myLocPlugin.settings.privacy.allowIpFallback = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.privacy.allowIpFallback = value;
+					});
 				});
 			});
 
@@ -1089,10 +1100,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 			.setName("Address language")
 			.setDesc("Language code for reverse geocoding, for example en or pl")
 			.addText((text: TextComponent) => {
-				text.setValue(this.myLocPlugin.settings.language);
+				text.setValue(settings.language);
 				text.onChange((value) => {
-					this.myLocPlugin.settings.language = value.trim();
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.language = value.trim();
+					});
 				});
 			});
 
@@ -1105,10 +1117,11 @@ export class MyLocSettingTab extends PluginSettingTab {
 				for (const tz of TIMEZONES) {
 					dropdown.addOption(tz, tz);
 				}
-				dropdown.setValue(this.myLocPlugin.settings.timezone);
+				dropdown.setValue(settings.timezone);
 				dropdown.onChange((value) => {
-					this.myLocPlugin.settings.timezone = value;
-					void this.myLocPlugin.saveSettings();
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.timezone = value;
+					});
 				});
 			});
 	}

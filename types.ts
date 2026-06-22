@@ -106,8 +106,9 @@ export interface PlaceMatch {
 }
 
 export interface MyLocPluginUiApi {
-	settings: MyLocSettings;
 	activeSessions: ActivePlaceSession[];
+	getMyLocSettings(): MyLocSettings;
+	updateMyLocSettings(update: (settings: MyLocSettings) => void): Promise<void>;
 	saveSettings(): Promise<void>;
 	formatDateTime(date: Date): { date: string; time: string; datetime: string; iso: string };
 }

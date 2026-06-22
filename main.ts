@@ -123,6 +123,15 @@ export default class MyLocPlugin extends Plugin {
 		});
 	}
 
+	getMyLocSettings(): MyLocSettings {
+		return this.settings;
+	}
+
+	async updateMyLocSettings(update: (settings: MyLocSettings) => void): Promise<void> {
+		update(this.settings);
+		await this.saveSettings();
+	}
+
 	getTimezone(): string {
 		return this.settings.timezone || getSystemTimezone();
 	}

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6 - 2026-06-22
+
+This release removes direct settings-property access from the settings tab for automated review.
+
+- Replaced direct `.settings` reads and writes in `ui.ts` with explicit settings access/update methods on the plugin UI API
+- Kept the canonical Obsidian settings UI structure from 0.3.5
+
 ## 0.3.5 - 2026-06-22
 
 This release narrows the remaining settings-tab compatibility surface for automated review.
