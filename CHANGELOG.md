@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3 - 2026-06-22
+
+This release removes the last settings-tab compatibility issue reported by automated review.
+
+- Replaced the remaining settings-tab `Setting` row usage with plain DOM-based controls to avoid unsupported API detection
+- Kept the same settings behavior while simplifying the compatibility surface
+
 ## 0.3.2 - 2026-06-22
 
 This release closes out the remaining automated review findings after 0.3.1.

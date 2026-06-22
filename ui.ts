@@ -953,13 +953,12 @@ export class MyLocSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl).setName("Storage").setHeading();
+		this.createSettingsSection(containerEl, "Storage");
 
-		new Setting(containerEl)
-			.setName("Places root folder")
-			.setDesc("All place files and the timeline folder live here");
-		this.addTextInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createTextSetting(
+			containerEl,
+			"Places root folder",
+			"All place files and the timeline folder live here",
 			this.plugin.settings.placesRoot,
 			(value) => {
 				this.plugin.settings.placesRoot = value.trim();
@@ -967,11 +966,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl)
-			.setName("Timeline folder name")
-			.setDesc("Created inside the places root folder");
-		this.addTextInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createTextSetting(
+			containerEl,
+			"Timeline folder name",
+			"Created inside the places root folder",
 			this.plugin.settings.timelineFolderName,
 			(value) => {
 				this.plugin.settings.timelineFolderName = value.trim();
@@ -979,11 +977,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl)
-			.setName("Default radius")
-			.setDesc("Used when creating a new place");
-		this.addTextInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createTextSetting(
+			containerEl,
+			"Default radius",
+			"Used when creating a new place",
 			String(this.plugin.settings.defaultRadius),
 			(value) => {
 				const parsed = parseInt(value, 10);
@@ -994,13 +991,12 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl).setName("Inline logging").setHeading();
+		this.createSettingsSection(containerEl, "Inline logging");
 
-		new Setting(containerEl)
-			.setName("Inline logging enabled by default")
-			.setDesc("Commands can still override this per action");
-		this.addCheckboxInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createCheckboxSetting(
+			containerEl,
+			"Inline logging enabled by default",
+			"Commands can still override this per action",
 			this.plugin.settings.inlineLoggingDefault,
 			(value) => {
 				this.plugin.settings.inlineLoggingDefault = value;
@@ -1008,11 +1004,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl)
-			.setName("Inline log heading")
-			.setDesc("Append inline logs under this exact heading when it exists. Leave empty to append at the current cursor line.");
-		this.addTextInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createTextSetting(
+			containerEl,
+			"Inline log heading",
+			"Append inline logs under this exact heading when it exists. Leave empty to append at the current cursor line.",
 			this.plugin.settings.inlineLogHeading,
 			(value) => {
 				this.plugin.settings.inlineLogHeading = value;
@@ -1020,11 +1015,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl)
-			.setName("Daily note filename format")
-			.setDesc("Used for daily-note links written into place logs. Uses Moment.js tokens, for example YYYY-MM-DD or YYYY-MM-DD_ddd.");
-		this.addTextInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createTextSetting(
+			containerEl,
+			"Daily note filename format",
+			"Used for daily-note links written into place logs. Uses Moment.js tokens, for example YYYY-MM-DD or YYYY-MM-DD_ddd.",
 			this.plugin.settings.dailyNoteFormat,
 			(value) => {
 				this.plugin.settings.dailyNoteFormat = value.trim() || "YYYY-MM-DD";
@@ -1032,29 +1026,36 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		const loginTemplateSetting = new Setting(containerEl)
-			.setName("Inline login text");
-		this.addTextAreaInput(loginTemplateSetting.settingEl, this.plugin.settings.inlineLoginTemplate, (value) => {
-			this.plugin.settings.inlineLoginTemplate = value;
-			return this.plugin.saveSettings();
-		});
-		buildPlaceholderDesc(loginTemplateSetting.descEl);
+		this.createTextAreaSetting(
+			containerEl,
+			"Inline login text",
+			"",
+			this.plugin.settings.inlineLoginTemplate,
+			(value) => {
+				this.plugin.settings.inlineLoginTemplate = value;
+				return this.plugin.saveSettings();
+			},
+			buildPlaceholderDesc
+		);
 
-		const logoutTemplateSetting = new Setting(containerEl)
-			.setName("Inline logout text");
-		this.addTextAreaInput(logoutTemplateSetting.settingEl, this.plugin.settings.inlineLogoutTemplate, (value) => {
-			this.plugin.settings.inlineLogoutTemplate = value;
-			return this.plugin.saveSettings();
-		});
-		buildPlaceholderDesc(logoutTemplateSetting.descEl);
+		this.createTextAreaSetting(
+			containerEl,
+			"Inline logout text",
+			"",
+			this.plugin.settings.inlineLogoutTemplate,
+			(value) => {
+				this.plugin.settings.inlineLogoutTemplate = value;
+				return this.plugin.saveSettings();
+			},
+			buildPlaceholderDesc
+		);
 
-		new Setting(containerEl).setName("Location").setHeading();
+		this.createSettingsSection(containerEl, "Location");
 
-		new Setting(containerEl)
-			.setName("Allow reverse geocoding")
-			.setDesc("Use an external service to get human-readable addresses");
-		this.addCheckboxInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createCheckboxSetting(
+			containerEl,
+			"Allow reverse geocoding",
+			"Use an external service to get human-readable addresses",
 			this.plugin.settings.privacy.allowReverseGeocoding,
 			(value) => {
 				this.plugin.settings.privacy.allowReverseGeocoding = value;
@@ -1062,11 +1063,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl)
-			.setName("Allow approximate IP fallback")
-			.setDesc("Use IP-based location when device geolocation is unavailable");
-		this.addCheckboxInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createCheckboxSetting(
+			containerEl,
+			"Allow approximate IP fallback",
+			"Use IP-based location when device geolocation is unavailable",
 			this.plugin.settings.privacy.allowIpFallback,
 			(value) => {
 				this.plugin.settings.privacy.allowIpFallback = value;
@@ -1074,11 +1074,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 			}
 		);
 
-		new Setting(containerEl)
-			.setName("Address language")
-			.setDesc("Language code for reverse geocoding, for example en or pl");
-		this.addTextInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createTextSetting(
+			containerEl,
+			"Address language",
+			"Language code for reverse geocoding, for example en or pl",
 			this.plugin.settings.language,
 			(value) => {
 				this.plugin.settings.language = value.trim();
@@ -1087,11 +1086,10 @@ export class MyLocSettingTab extends PluginSettingTab {
 		);
 
 		const systemTz = getSystemTimezone();
-		new Setting(containerEl)
-			.setName("Timezone")
-			.setDesc(`Auto uses the system timezone (${systemTz})`);
-		this.addSelectInput(
-			containerEl.lastElementChild as HTMLElement,
+		this.createSelectSetting(
+			containerEl,
+			"Timezone",
+			`Auto uses the system timezone (${systemTz})`,
 			[
 				{ value: "", label: `Auto (${systemTz})` },
 				...TIMEZONES.map((tz) => ({ value: tz, label: tz })),
@@ -1104,14 +1102,30 @@ export class MyLocSettingTab extends PluginSettingTab {
 		);
 	}
 
-	private addTextInput(
-		settingEl: HTMLElement,
+	private createSettingsSection(containerEl: HTMLElement, title: string): void {
+		containerEl.createEl("h3", { text: title, cls: "myloc-settings-section" });
+	}
+
+	private createSettingRow(containerEl: HTMLElement, name: string, desc: string): { row: HTMLElement; controlEl: HTMLElement; descEl: HTMLElement } {
+		const row = containerEl.createDiv({ cls: "myloc-settings-row" });
+		const infoEl = row.createDiv({ cls: "myloc-settings-info" });
+		infoEl.createEl("div", { text: name, cls: "myloc-settings-name" });
+		const descEl = infoEl.createDiv({ cls: "myloc-settings-desc" });
+		if (desc) {
+			descEl.setText(desc);
+		}
+		const controlEl = row.createDiv({ cls: "myloc-settings-control" });
+		return { row, controlEl, descEl };
+	}
+
+	private createTextSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
 		value: string,
 		onChange: (value: string) => Promise<void> | void
 	): void {
-		const controlEl = settingEl.querySelector(".setting-item-control");
-		if (!(controlEl instanceof HTMLElement)) return;
-		controlEl.empty();
+		const { controlEl } = this.createSettingRow(containerEl, name, desc);
 		const input = controlEl.createEl("input", { type: "text", cls: "myloc-settings-input" });
 		input.value = value;
 		input.addEventListener("input", () => {
@@ -1119,14 +1133,19 @@ export class MyLocSettingTab extends PluginSettingTab {
 		});
 	}
 
-	private addTextAreaInput(
-		settingEl: HTMLElement,
+	private createTextAreaSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
 		value: string,
-		onChange: (value: string) => Promise<void> | void
+		onChange: (value: string) => Promise<void> | void,
+		decorateDesc?: (el: HTMLElement) => void
 	): void {
-		const controlEl = settingEl.querySelector(".setting-item-control");
-		if (!(controlEl instanceof HTMLElement)) return;
-		controlEl.empty();
+		const { controlEl, descEl } = this.createSettingRow(containerEl, name, desc);
+		if (decorateDesc) {
+			descEl.empty();
+			decorateDesc(descEl);
+		}
 		const input = controlEl.createEl("textarea", { cls: "myloc-settings-textarea" });
 		input.rows = 2;
 		input.value = value;
@@ -1135,14 +1154,14 @@ export class MyLocSettingTab extends PluginSettingTab {
 		});
 	}
 
-	private addCheckboxInput(
-		settingEl: HTMLElement,
+	private createCheckboxSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
 		checked: boolean,
 		onChange: (value: boolean) => Promise<void> | void
 	): void {
-		const controlEl = settingEl.querySelector(".setting-item-control");
-		if (!(controlEl instanceof HTMLElement)) return;
-		controlEl.empty();
+		const { controlEl } = this.createSettingRow(containerEl, name, desc);
 		const input = controlEl.createEl("input", { type: "checkbox", cls: "myloc-settings-checkbox" });
 		input.checked = checked;
 		input.addEventListener("change", () => {
@@ -1150,15 +1169,15 @@ export class MyLocSettingTab extends PluginSettingTab {
 		});
 	}
 
-	private addSelectInput(
-		settingEl: HTMLElement,
+	private createSelectSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
 		options: Array<{ value: string; label: string }>,
 		value: string,
 		onChange: (value: string) => Promise<void> | void
 	): void {
-		const controlEl = settingEl.querySelector(".setting-item-control");
-		if (!(controlEl instanceof HTMLElement)) return;
-		controlEl.empty();
+		const { controlEl } = this.createSettingRow(containerEl, name, desc);
 		const select = controlEl.createEl("select", { cls: "myloc-settings-select" });
 		for (const option of options) {
 			select.createEl("option", { value: option.value, text: option.label });
