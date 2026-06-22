@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 - 2026-06-22
+
+This release closes out the remaining automated review findings after 0.3.1.
+
+- Reworked the settings tab implementation to avoid the remaining Obsidian API compatibility warnings
+- Removed the remaining unsafe type-handling warnings in location and frontmatter parsing
+- Kept the updated release workflow and attestation setup from 0.3.1 in place for future releases
+
 ## 0.3.1 - 2026-06-22
 
 This release focuses on packaging, compatibility, and repository readiness for review.

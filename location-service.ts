@@ -53,7 +53,7 @@ class LocationService {
 
 	formatPathTemplate(template: string): string {
 		const tz = this.getTimezone();
-		return template.replace(/\{date:([^}]+)\}/g, (_, pattern) =>
+		return template.replace(/\{date:([^}]+)\}/g, (_: string, pattern: string) =>
 			formatDatePattern(new Date(), pattern, tz)
 		);
 	}
@@ -329,10 +329,7 @@ class LocationService {
 	private getMarkdownFilesInFolder(folderPath: string): TFile[] {
 		const folder = this.app.vault.getAbstractFileByPath(folderPath);
 		if (!this.isFolderLike(folder)) {
-			const getMarkdownFiles = this.app.vault.getMarkdownFiles?.bind(this.app.vault);
-			return typeof getMarkdownFiles === "function"
-				? getMarkdownFiles().filter((file) => file.path.startsWith(`${folderPath}/`))
-				: [];
+			return this.getVaultMarkdownFiles().filter((file) => file.path.startsWith(`${folderPath}/`));
 		}
 
 		const files: TFile[] = [];
@@ -365,17 +362,18 @@ class LocationService {
 	}
 
 	private asPlaceFrontmatter(frontmatter?: CachedMetadata["frontmatter"]): PlaceFrontmatter | null {
-		if (!frontmatter || typeof frontmatter !== "object") {
+		const record = this.asRecord(frontmatter);
+		if (!record) {
 			return null;
 		}
 
-		const type = frontmatter["myloc-type"];
-		const name = frontmatter.name;
-		const location = frontmatter.location;
-		const radius = frontmatter.radius;
-		const inlineName = frontmatter.inline_name;
-		const inlineText = frontmatter.inline_text;
-		const tags = frontmatter.tags;
+		const type = record["myloc-type"];
+		const name = record["name"];
+		const location = record["location"];
+		const radius = record["radius"];
+		const inlineName = record["inline_name"];
+		const inlineText = record["inline_text"];
+		const tags = record["tags"];
 
 		if (
 			type !== "place" ||
@@ -400,15 +398,29 @@ class LocationService {
 		};
 	}
 
+	private getVaultMarkdownFiles(): TFile[] {
+		const vaultWithMarkdownFiles = this.app.vault as typeof this.app.vault & {
+			getMarkdownFiles?: () => TFile[];
+		};
+		return typeof vaultWithMarkdownFiles.getMarkdownFiles === "function"
+			? vaultWithMarkdownFiles.getMarkdownFiles()
+			: [];
+	}
+
+	private asRecord(value: unknown): Record<string, unknown> | null {
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			return null;
+		}
+		return value as Record<string, unknown>;
+	}
+
 	private asNominatimResponse(data: unknown): NominatimResponse {
-		if (!data || typeof data !== "object") {
+		const value = this.asRecord(data);
+		if (!value) {
 			return {};
 		}
-		const value = data as Record<string, unknown>;
 		const address = value["address"];
-		const addressRecord = address && typeof address === "object"
-			? address as Record<string, unknown>
-			: undefined;
+		const addressRecord = this.asRecord(address) || undefined;
 		return {
 			error: typeof value["error"] === "string" ? value["error"] : undefined,
 			display_name: typeof value["display_name"] === "string" ? value["display_name"] : undefined,
@@ -422,10 +434,10 @@ class LocationService {
 	}
 
 	private asIpWhoIsResponse(data: unknown): IpWhoIsResponse {
-		if (!data || typeof data !== "object") {
+		const value = this.asRecord(data);
+		if (!value) {
 			return {};
 		}
-		const value = data as Record<string, unknown>;
 		return {
 			success: typeof value["success"] === "boolean" ? value["success"] : undefined,
 			message: typeof value["message"] === "string" ? value["message"] : undefined,

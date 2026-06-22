@@ -100,3 +100,13 @@
 .myloc-place-link:hover {
 	text-decoration: underline;
 }
+
+.myloc-settings-input,
+.myloc-settings-select,
+.myloc-settings-textarea {
+	width: 100%;
+}
+
+.myloc-settings-textarea {
+	resize: vertical;
+}

@@ -957,136 +957,215 @@ export class MyLocSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Places root folder")
-			.setDesc("All place files and the timeline folder live here")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.placesRoot).onChange(async (value) => {
-					this.plugin.settings.placesRoot = value.trim();
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("All place files and the timeline folder live here");
+		this.addTextInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.placesRoot,
+			(value) => {
+				this.plugin.settings.placesRoot = value.trim();
+				return this.plugin.saveSettings();
+			}
+		);
 
 		new Setting(containerEl)
 			.setName("Timeline folder name")
-			.setDesc("Created inside the places root folder")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.timelineFolderName).onChange(async (value) => {
-					this.plugin.settings.timelineFolderName = value.trim();
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Created inside the places root folder");
+		this.addTextInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.timelineFolderName,
+			(value) => {
+				this.plugin.settings.timelineFolderName = value.trim();
+				return this.plugin.saveSettings();
+			}
+		);
 
 		new Setting(containerEl)
 			.setName("Default radius")
-			.setDesc("Used when creating a new place")
-			.addText((text) =>
-				text.setValue(String(this.plugin.settings.defaultRadius)).onChange(async (value) => {
-					const parsed = parseInt(value, 10);
-					if (!Number.isNaN(parsed) && parsed > 0) {
-						this.plugin.settings.defaultRadius = parsed;
-						await this.plugin.saveSettings();
-					}
-				})
-			);
+			.setDesc("Used when creating a new place");
+		this.addTextInput(
+			containerEl.lastElementChild as HTMLElement,
+			String(this.plugin.settings.defaultRadius),
+			(value) => {
+				const parsed = parseInt(value, 10);
+				if (!Number.isNaN(parsed) && parsed > 0) {
+					this.plugin.settings.defaultRadius = parsed;
+					return this.plugin.saveSettings();
+				}
+			}
+		);
 
 		new Setting(containerEl).setName("Inline logging").setHeading();
 
 		new Setting(containerEl)
 			.setName("Inline logging enabled by default")
-			.setDesc("Commands can still override this per action")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.inlineLoggingDefault).onChange(async (value) => {
-					this.plugin.settings.inlineLoggingDefault = value;
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Commands can still override this per action");
+		this.addCheckboxInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.inlineLoggingDefault,
+			(value) => {
+				this.plugin.settings.inlineLoggingDefault = value;
+				return this.plugin.saveSettings();
+			}
+		);
 
 		new Setting(containerEl)
 			.setName("Inline log heading")
-			.setDesc("Append inline logs under this exact heading when it exists. Leave empty to append at the current cursor line.")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.inlineLogHeading).onChange(async (value) => {
-					this.plugin.settings.inlineLogHeading = value;
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Append inline logs under this exact heading when it exists. Leave empty to append at the current cursor line.");
+		this.addTextInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.inlineLogHeading,
+			(value) => {
+				this.plugin.settings.inlineLogHeading = value;
+				return this.plugin.saveSettings();
+			}
+		);
 
 		new Setting(containerEl)
 			.setName("Daily note filename format")
-			.setDesc("Used for daily-note links written into place logs. Uses Moment.js tokens, for example YYYY-MM-DD or YYYY-MM-DD_ddd.")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.dailyNoteFormat).onChange(async (value) => {
-					this.plugin.settings.dailyNoteFormat = value.trim() || "YYYY-MM-DD";
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Used for daily-note links written into place logs. Uses Moment.js tokens, for example YYYY-MM-DD or YYYY-MM-DD_ddd.");
+		this.addTextInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.dailyNoteFormat,
+			(value) => {
+				this.plugin.settings.dailyNoteFormat = value.trim() || "YYYY-MM-DD";
+				return this.plugin.saveSettings();
+			}
+		);
 
 		const loginTemplateSetting = new Setting(containerEl)
-			.setName("Inline login text")
-			.addTextArea((text) => {
-				text.setValue(this.plugin.settings.inlineLoginTemplate).onChange(async (value) => {
-					this.plugin.settings.inlineLoginTemplate = value;
-					await this.plugin.saveSettings();
-				});
-				text.inputEl.rows = 2;
-			});
+			.setName("Inline login text");
+		this.addTextAreaInput(loginTemplateSetting.settingEl, this.plugin.settings.inlineLoginTemplate, (value) => {
+			this.plugin.settings.inlineLoginTemplate = value;
+			return this.plugin.saveSettings();
+		});
 		buildPlaceholderDesc(loginTemplateSetting.descEl);
 
 		const logoutTemplateSetting = new Setting(containerEl)
-			.setName("Inline logout text")
-			.addTextArea((text) => {
-				text.setValue(this.plugin.settings.inlineLogoutTemplate).onChange(async (value) => {
-					this.plugin.settings.inlineLogoutTemplate = value;
-					await this.plugin.saveSettings();
-				});
-				text.inputEl.rows = 2;
-			});
+			.setName("Inline logout text");
+		this.addTextAreaInput(logoutTemplateSetting.settingEl, this.plugin.settings.inlineLogoutTemplate, (value) => {
+			this.plugin.settings.inlineLogoutTemplate = value;
+			return this.plugin.saveSettings();
+		});
 		buildPlaceholderDesc(logoutTemplateSetting.descEl);
 
 		new Setting(containerEl).setName("Location").setHeading();
 
 		new Setting(containerEl)
 			.setName("Allow reverse geocoding")
-			.setDesc("Use an external service to get human-readable addresses")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.privacy.allowReverseGeocoding).onChange(async (value) => {
-					this.plugin.settings.privacy.allowReverseGeocoding = value;
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Use an external service to get human-readable addresses");
+		this.addCheckboxInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.privacy.allowReverseGeocoding,
+			(value) => {
+				this.plugin.settings.privacy.allowReverseGeocoding = value;
+				return this.plugin.saveSettings();
+			}
+		);
 
 		new Setting(containerEl)
 			.setName("Allow approximate IP fallback")
-			.setDesc("Use IP-based location when device geolocation is unavailable")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.privacy.allowIpFallback).onChange(async (value) => {
-					this.plugin.settings.privacy.allowIpFallback = value;
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Use IP-based location when device geolocation is unavailable");
+		this.addCheckboxInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.privacy.allowIpFallback,
+			(value) => {
+				this.plugin.settings.privacy.allowIpFallback = value;
+				return this.plugin.saveSettings();
+			}
+		);
 
 		new Setting(containerEl)
 			.setName("Address language")
-			.setDesc("Language code for reverse geocoding, for example en or pl")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.language).onChange(async (value) => {
-					this.plugin.settings.language = value.trim();
-					await this.plugin.saveSettings();
-				})
-			);
+			.setDesc("Language code for reverse geocoding, for example en or pl");
+		this.addTextInput(
+			containerEl.lastElementChild as HTMLElement,
+			this.plugin.settings.language,
+			(value) => {
+				this.plugin.settings.language = value.trim();
+				return this.plugin.saveSettings();
+			}
+		);
 
 		const systemTz = getSystemTimezone();
 		new Setting(containerEl)
 			.setName("Timezone")
-			.setDesc(`Auto uses the system timezone (${systemTz})`)
-			.addDropdown((dropdown) => {
-				dropdown.addOption("", `Auto (${systemTz})`);
-				for (const tz of TIMEZONES) {
-					dropdown.addOption(tz, tz);
-				}
-				dropdown.setValue(this.plugin.settings.timezone).onChange(async (value) => {
-					this.plugin.settings.timezone = value;
-					await this.plugin.saveSettings();
-				});
-			});
+			.setDesc(`Auto uses the system timezone (${systemTz})`);
+		this.addSelectInput(
+			containerEl.lastElementChild as HTMLElement,
+			[
+				{ value: "", label: `Auto (${systemTz})` },
+				...TIMEZONES.map((tz) => ({ value: tz, label: tz })),
+			],
+			this.plugin.settings.timezone,
+			(value) => {
+				this.plugin.settings.timezone = value;
+				return this.plugin.saveSettings();
+			}
+		);
+	}
+
+	private addTextInput(
+		settingEl: HTMLElement,
+		value: string,
+		onChange: (value: string) => Promise<void> | void
+	): void {
+		const controlEl = settingEl.querySelector(".setting-item-control");
+		if (!(controlEl instanceof HTMLElement)) return;
+		controlEl.empty();
+		const input = controlEl.createEl("input", { type: "text", cls: "myloc-settings-input" });
+		input.value = value;
+		input.addEventListener("input", () => {
+			void onChange(input.value);
+		});
+	}
+
+	private addTextAreaInput(
+		settingEl: HTMLElement,
+		value: string,
+		onChange: (value: string) => Promise<void> | void
+	): void {
+		const controlEl = settingEl.querySelector(".setting-item-control");
+		if (!(controlEl instanceof HTMLElement)) return;
+		controlEl.empty();
+		const input = controlEl.createEl("textarea", { cls: "myloc-settings-textarea" });
+		input.rows = 2;
+		input.value = value;
+		input.addEventListener("input", () => {
+			void onChange(input.value);
+		});
+	}
+
+	private addCheckboxInput(
+		settingEl: HTMLElement,
+		checked: boolean,
+		onChange: (value: boolean) => Promise<void> | void
+	): void {
+		const controlEl = settingEl.querySelector(".setting-item-control");
+		if (!(controlEl instanceof HTMLElement)) return;
+		controlEl.empty();
+		const input = controlEl.createEl("input", { type: "checkbox", cls: "myloc-settings-checkbox" });
+		input.checked = checked;
+		input.addEventListener("change", () => {
+			void onChange(input.checked);
+		});
+	}
+
+	private addSelectInput(
+		settingEl: HTMLElement,
+		options: Array<{ value: string; label: string }>,
+		value: string,
+		onChange: (value: string) => Promise<void> | void
+	): void {
+		const controlEl = settingEl.querySelector(".setting-item-control");
+		if (!(controlEl instanceof HTMLElement)) return;
+		controlEl.empty();
+		const select = controlEl.createEl("select", { cls: "myloc-settings-select" });
+		for (const option of options) {
+			select.createEl("option", { value: option.value, text: option.label });
+		}
+		select.value = value;
+		select.addEventListener("change", () => {
+			void onChange(select.value);
+		});
 	}
 }
