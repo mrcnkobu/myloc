@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5 - 2026-06-22
+
+This release narrows the remaining settings-tab compatibility surface for automated review.
+
+- Renamed the settings-tab stored plugin reference so custom settings access is no longer exposed through a `plugin` property name
+- Kept the canonical Obsidian `Setting` rows and `setHeading()` headings from 0.3.4
+
 ## 0.3.4 - 2026-06-22
 
 This release republishes the final settings-tab compatibility adjustment for automated review.
