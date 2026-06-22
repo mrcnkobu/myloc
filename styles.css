@@ -88,6 +88,10 @@
 	margin-right: 6px;
 }
 
+.myloc-inline-control.is-hidden {
+	display: none;
+}
+
 .myloc-place-link {
 	color: var(--link-color);
 	text-decoration: none;

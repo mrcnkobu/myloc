@@ -90,7 +90,7 @@ class NoteService {
 
 	async ensureFile(path: string, content: string): Promise<TFile> {
 		const existing = this.app.vault.getAbstractFileByPath(path);
-		if (existing && "path" in existing && "stat" in existing) {
+		if (this.isFileLike(existing)) {
 			return existing;
 		}
 		return await this.app.vault.create(path, content);
@@ -103,6 +103,13 @@ class NoteService {
 		const inlineName = place.inlineName ? place.inlineName.replace(/"/g, '\\"') : "";
 		const inlineText = place.inlineText ? place.inlineText.replace(/"/g, '\\"') : "";
 		return `---\nmyloc-type: place\nname: "${place.name.replace(/"/g, '\\"')}"\ninline_name: "${inlineName}"\ninline_text: "${inlineText}"\nlocation: [${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}]\nradius: ${place.radius}\n${tagsBlock}---\n\n# ${place.name}\n\n## Details\n- Address: ${details.address || "Unknown"}\n- Coordinates: ${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}\n- Radius: ${place.radius} m\n- Map: [Open in Map](${details.mapUrl})\n\n## Log\n`;
+	}
+
+	private isFileLike(value: unknown): value is TFile {
+		return Boolean(value)
+			&& typeof value === "object"
+			&& typeof (value as { path?: unknown }).path === "string"
+			&& !Array.isArray((value as { children?: unknown }).children);
 	}
 }
 

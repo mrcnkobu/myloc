@@ -1,10 +1,11 @@
-import type { App, CachedMetadata, TFile } from "obsidian";
+import type { App, CachedMetadata, TAbstractFile, TFile } from "obsidian";
 import {
 	type AddressResult,
 	type CacheEntry,
 	type LocationResult,
 	type MyLocSettings,
 	type PlaceMatch,
+	type PlaceFrontmatter,
 	type PlaceRecord,
 } from "./types";
 import { formatDatePattern, haversineDistance, sanitizeFilename } from "./utils";
@@ -12,6 +13,24 @@ import { formatDatePattern, haversineDistance, sanitizeFilename } from "./utils"
 interface LocationServiceDeps {
 	isMobile: boolean;
 	requestUrl: typeof import("obsidian").requestUrl;
+}
+
+interface NominatimResponse {
+	error?: string;
+	display_name?: string;
+	address?: {
+		city?: string;
+		town?: string;
+		village?: string;
+		country?: string;
+	};
+}
+
+interface IpWhoIsResponse {
+	success?: boolean;
+	message?: string;
+	latitude?: number;
+	longitude?: number;
 }
 
 class LocationService {
@@ -29,7 +48,7 @@ class LocationService {
 	) {}
 
 	formatInlineTemplate(template: string, values: Record<string, string>): string {
-		return template.replace(/\{(\w+)\}/g, (_, key) => values[key] || "");
+		return template.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? "");
 	}
 
 	formatPathTemplate(template: string): string {
@@ -108,13 +127,15 @@ class LocationService {
 	}
 
 	getAllPlaces(): PlaceRecord[] {
-		const root = `${this.getPlacesRoot()}/`;
-		const timelineFolder = `${this.getTimelineFolder()}/`;
-		return this.app.vault.getMarkdownFiles()
-			.filter((file) => file.path.startsWith(root) && !file.path.startsWith(timelineFolder))
+		return this.getMarkdownFilesInFolder(this.getPlacesRoot())
+			.filter((file) => !file.path.startsWith(`${this.getTimelineFolder()}/`))
 			.map((file) => this.parsePlaceFile(file))
 			.filter((place): place is PlaceRecord => place !== null)
 			.sort((a, b) => a.path.localeCompare(b.path));
+	}
+
+	getTimelineFiles(): TFile[] {
+		return this.getMarkdownFilesInFolder(this.getTimelineFolder()).sort((a, b) => a.path.localeCompare(b.path));
 	}
 
 	findMatchingPlaces(location: LocationResult, places = this.getAllPlaces()): PlaceMatch[] {
@@ -185,49 +206,41 @@ class LocationService {
 			method: "GET",
 			headers,
 		});
-		const data = response.json;
+		const data = this.asNominatimResponse(response.json);
 
 		if (data.error) {
 			throw new Error(data.error);
 		}
 
 		return this.setCachedValue(this.reverseGeocodeCache, cacheKey, {
-			display: data.display_name,
+			display: data.display_name || `${lat.toFixed(6)}, ${lon.toFixed(6)}`,
 			city: data.address?.city || data.address?.town || data.address?.village,
 			country: data.address?.country,
 		}, LocationService.LOOKUP_CACHE_TTL_MS);
 	}
 
 	private placeFromFrontmatter(path: string, frontmatter?: CachedMetadata["frontmatter"]): PlaceRecord | null {
-		const type = frontmatter?.["myloc-type"];
-		const name = frontmatter?.name;
-		const location = frontmatter?.location;
-		const radius = frontmatter?.radius;
-
-		if (type !== "place" || typeof name !== "string" || !Array.isArray(location) || location.length < 2) {
+		const placeFrontmatter = this.asPlaceFrontmatter(frontmatter);
+		if (!placeFrontmatter) {
 			return null;
 		}
 
-		const latitude = Number(location[0]);
-		const longitude = Number(location[1]);
-		const numericRadius = Number(radius);
+		const latitude = Number(placeFrontmatter.location[0]);
+		const longitude = Number(placeFrontmatter.location[1]);
+		const numericRadius = Number(placeFrontmatter.radius);
 		if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(numericRadius)) {
 			return null;
 		}
 
-		const tags = Array.isArray(frontmatter?.tags)
-			? frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
-			: [];
-
 		return {
 			path,
-			name,
-			inlineName: typeof frontmatter?.inline_name === "string" ? frontmatter.inline_name.trim() : "",
-			inlineText: typeof frontmatter?.inline_text === "string" ? frontmatter.inline_text : "",
+			name: placeFrontmatter.name,
+			inlineName: placeFrontmatter.inline_name?.trim() || "",
+			inlineText: placeFrontmatter.inline_text || "",
 			latitude,
 			longitude,
 			radius: numericRadius,
-			tags,
+			tags: placeFrontmatter.tags || [],
 		};
 	}
 
@@ -297,9 +310,12 @@ class LocationService {
 			method: "GET",
 		});
 
-		const data = response.json;
+		const data = this.asIpWhoIsResponse(response.json);
 		if (data.success === false) {
 			throw new Error(data.message || "IP geolocation failed");
+		}
+		if (typeof data.latitude !== "number" || typeof data.longitude !== "number") {
+			throw new Error("IP geolocation returned invalid coordinates");
 		}
 
 		return {
@@ -307,6 +323,114 @@ class LocationService {
 			longitude: data.longitude,
 			accuracy: 5000,
 			isApproximate: true,
+		};
+	}
+
+	private getMarkdownFilesInFolder(folderPath: string): TFile[] {
+		const folder = this.app.vault.getAbstractFileByPath(folderPath);
+		if (!this.isFolderLike(folder)) {
+			const getMarkdownFiles = this.app.vault.getMarkdownFiles?.bind(this.app.vault);
+			return typeof getMarkdownFiles === "function"
+				? getMarkdownFiles().filter((file) => file.path.startsWith(`${folderPath}/`))
+				: [];
+		}
+
+		const files: TFile[] = [];
+		this.collectMarkdownFiles(folder, files);
+		return files;
+	}
+
+	private collectMarkdownFiles(entry: TAbstractFile, files: TFile[]): void {
+		if (this.isMarkdownFile(entry)) {
+			files.push(entry);
+			return;
+		}
+		if (this.isFolderLike(entry)) {
+			for (const child of entry.children) {
+				this.collectMarkdownFiles(child, files);
+			}
+		}
+	}
+
+	private isFolderLike(entry: unknown): entry is TAbstractFile & { children: TAbstractFile[] } {
+		return Boolean(entry) && typeof entry === "object" && Array.isArray((entry as { children?: unknown }).children);
+	}
+
+	private isMarkdownFile(entry: unknown): entry is TFile {
+		return Boolean(entry)
+			&& typeof entry === "object"
+			&& typeof (entry as { path?: unknown }).path === "string"
+			&& (entry as { extension?: unknown }).extension === "md"
+			&& !Array.isArray((entry as { children?: unknown }).children);
+	}
+
+	private asPlaceFrontmatter(frontmatter?: CachedMetadata["frontmatter"]): PlaceFrontmatter | null {
+		if (!frontmatter || typeof frontmatter !== "object") {
+			return null;
+		}
+
+		const type = frontmatter["myloc-type"];
+		const name = frontmatter.name;
+		const location = frontmatter.location;
+		const radius = frontmatter.radius;
+		const inlineName = frontmatter.inline_name;
+		const inlineText = frontmatter.inline_text;
+		const tags = frontmatter.tags;
+
+		if (
+			type !== "place" ||
+			typeof name !== "string" ||
+			!Array.isArray(location) ||
+			location.length < 2 ||
+			(typeof inlineName !== "string" && inlineName !== undefined) ||
+			(typeof inlineText !== "string" && inlineText !== undefined) ||
+			(typeof radius !== "number" && typeof radius !== "string")
+		) {
+			return null;
+		}
+
+		return {
+			"myloc-type": "place",
+			name,
+			inline_name: inlineName,
+			inline_text: inlineText,
+			location: [Number(location[0]), Number(location[1])],
+			radius: Number(radius),
+			tags: Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string") : [],
+		};
+	}
+
+	private asNominatimResponse(data: unknown): NominatimResponse {
+		if (!data || typeof data !== "object") {
+			return {};
+		}
+		const value = data as Record<string, unknown>;
+		const address = value["address"];
+		const addressRecord = address && typeof address === "object"
+			? address as Record<string, unknown>
+			: undefined;
+		return {
+			error: typeof value["error"] === "string" ? value["error"] : undefined,
+			display_name: typeof value["display_name"] === "string" ? value["display_name"] : undefined,
+			address: addressRecord ? {
+				city: typeof addressRecord["city"] === "string" ? addressRecord["city"] : undefined,
+				town: typeof addressRecord["town"] === "string" ? addressRecord["town"] : undefined,
+				village: typeof addressRecord["village"] === "string" ? addressRecord["village"] : undefined,
+				country: typeof addressRecord["country"] === "string" ? addressRecord["country"] : undefined,
+			} : undefined,
+		};
+	}
+
+	private asIpWhoIsResponse(data: unknown): IpWhoIsResponse {
+		if (!data || typeof data !== "object") {
+			return {};
+		}
+		const value = data as Record<string, unknown>;
+		return {
+			success: typeof value["success"] === "boolean" ? value["success"] : undefined,
+			message: typeof value["message"] === "string" ? value["message"] : undefined,
+			latitude: typeof value["latitude"] === "number" ? value["latitude"] : undefined,
+			longitude: typeof value["longitude"] === "number" ? value["longitude"] : undefined,
 		};
 	}
 }

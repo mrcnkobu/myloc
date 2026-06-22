@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1 - 2026-06-22
+
+This release focuses on packaging, compatibility, and repository readiness for review.
+
+- Updated the plugin description to match current functionality and marketplace requirements
+- Raised the declared minimum app version to match the Obsidian APIs used by the plugin
+- Reworked scan-flagged UI styling to use CSS classes instead of direct style assignment
+- Hardened settings, frontmatter, and remote JSON parsing to remove unsafe access warnings
+- Reduced vault-wide enumeration by preferring folder-scoped traversal for places and timeline files
+- Replaced the deprecated `builtin-modules` package with Node's built-in module list
+- Added a GitHub Actions release workflow with build provenance attestations for release assets
+
 ## 0.3.0 - 2026-06-22
 
 This release adds a second wave of workflow polish on top of the 0.2.0 rebuild.

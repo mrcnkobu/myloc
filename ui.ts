@@ -8,6 +8,10 @@ import {
 } from "./types";
 import { formatDuration, getSystemTimezone } from "./utils";
 
+function setInlineControlVisibility(element: HTMLElement, visible: boolean): void {
+	element.classList.toggle("is-hidden", !visible);
+}
+
 export interface CreatePlaceInput {
 	path: string;
 	latitude?: number;
@@ -401,7 +405,7 @@ export class LoginModal extends Modal {
 					if (value) this.inlinePaths.add(match.place.path);
 					else this.inlinePaths.delete(match.place.path);
 				});
-				inlineControl.style.display = !isActive && this.selectedPaths.has(match.place.path) ? "" : "none";
+				setInlineControlVisibility(inlineControl, !isActive && this.selectedPaths.has(match.place.path));
 				setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
 				setting.addToggle((selectToggle) =>
 					selectToggle
@@ -413,11 +417,11 @@ export class LoginModal extends Modal {
 								if (this.inlineDefault) {
 									this.inlinePaths.add(match.place.path);
 								}
-								inlineControl.style.display = "";
+								setInlineControlVisibility(inlineControl, true);
 							} else {
 								this.selectedPaths.delete(match.place.path);
 								this.inlinePaths.delete(match.place.path);
-								inlineControl.style.display = "none";
+								setInlineControlVisibility(inlineControl, false);
 							}
 						})
 				);
@@ -447,7 +451,7 @@ export class LoginModal extends Modal {
 			inlineToggle.setValue(this.createPlaceInline).onChange((value) => {
 				this.createPlaceInline = value;
 			});
-			inlineControl.style.display = this.createPlaceSelected ? "" : "none";
+			setInlineControlVisibility(inlineControl, this.createPlaceSelected);
 			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
 			setting.addToggle((selectToggle) =>
 				selectToggle.setValue(this.createPlaceSelected).onChange((value) => {
@@ -455,11 +459,11 @@ export class LoginModal extends Modal {
 					if (value) {
 						this.createPlaceInline = true;
 						inlineToggle.setValue(true);
-						inlineControl.style.display = "";
+						setInlineControlVisibility(inlineControl, true);
 					} else {
 						this.createPlaceInline = false;
 						inlineToggle.setValue(false);
-						inlineControl.style.display = "none";
+						setInlineControlVisibility(inlineControl, false);
 					}
 				})
 			);
@@ -618,7 +622,7 @@ export class LogoutModal extends Modal {
 				if (value) inlineSessionIds.add(session.id);
 				else inlineSessionIds.delete(session.id);
 			});
-			inlineControl.style.display = selectedSessionIds.has(session.id) ? "" : "none";
+			setInlineControlVisibility(inlineControl, selectedSessionIds.has(session.id));
 			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log out" });
 			setting.addToggle((selectToggle) =>
 				selectToggle.setValue(selectedSessionIds.has(session.id)).onChange((value) => {
@@ -627,12 +631,12 @@ export class LogoutModal extends Modal {
 						if (this.inlineDefault) {
 							inlineSessionIds.add(session.id);
 						}
-						inlineControl.style.display = "";
+						setInlineControlVisibility(inlineControl, true);
 					}
 					else {
 						selectedSessionIds.delete(session.id);
 						inlineSessionIds.delete(session.id);
-						inlineControl.style.display = "none";
+						setInlineControlVisibility(inlineControl, false);
 					}
 				})
 			);
@@ -732,14 +736,13 @@ export class ActivePlacesModal extends Modal {
 				cls: "myloc-session-meta",
 				text: `Active for ${elapsed}`,
 			});
-			const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+			const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control is-hidden" });
 			inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
 			const inlineToggle = new ToggleComponent(inlineControl);
 			inlineToggle.setValue(false).onChange((value) => {
 				if (value) inlineSelected.add(session.id);
 				else inlineSelected.delete(session.id);
 			});
-			inlineControl.style.display = "none";
 			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log out" });
 			setting.addToggle((selectToggle) =>
 				selectToggle.setValue(false).onChange((value) => {
@@ -749,13 +752,13 @@ export class ActivePlacesModal extends Modal {
 							inlineSelected.add(session.id);
 							inlineToggle.setValue(true);
 						}
-						inlineControl.style.display = "";
+						setInlineControlVisibility(inlineControl, true);
 					}
 					else {
 						selected.delete(session.id);
 						inlineSelected.delete(session.id);
 						inlineToggle.setValue(false);
-						inlineControl.style.display = "none";
+						setInlineControlVisibility(inlineControl, false);
 					}
 				})
 			);

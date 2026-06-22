@@ -1,7 +1,7 @@
 {
 	"name": "myloc",
-	"version": "0.3.0",
-	"description": "Location logging and place-aware note insertion for Obsidian",
+	"version": "0.3.1",
+	"description": "Location logging, place-aware insertion, and timeline tracking",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
@@ -25,7 +25,6 @@
 		"@types/node": "^20.11.0",
 		"@typescript-eslint/eslint-plugin": "^8.30.0",
 		"@typescript-eslint/parser": "^8.30.0",
-		"builtin-modules": "^3.3.0",
 		"esbuild": "^0.20.0",
 		"eslint": "^9.22.0",
 		"globals": "^16.0.0",

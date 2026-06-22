@@ -23,6 +23,19 @@ import {
 import { LocationService } from "./location-service";
 import { NoteService } from "./note-service";
 
+interface PersistedPluginData {
+	settings?: Partial<MyLocSettings> & {
+		privacy?: Partial<MyLocSettings["privacy"]>;
+	};
+	activeSessions?: ActivePlaceSession[];
+	privacy?: Partial<MyLocSettings["privacy"]>;
+}
+
+interface DailyNotesPluginOptions {
+	format?: string;
+	folder?: string;
+}
+
 export default class MyLocPlugin extends Plugin {
 	settings: MyLocSettings;
 	activeSessions: ActivePlaceSession[] = [];
@@ -96,10 +109,11 @@ export default class MyLocPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		const loaded = await this.loadData();
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded?.settings || loaded);
-		this.settings.privacy = Object.assign({}, DEFAULT_SETTINGS.privacy, loaded?.settings?.privacy || loaded?.privacy);
-		this.activeSessions = Array.isArray(loaded?.activeSessions) ? loaded.activeSessions : [];
+		const loaded = this.asPersistedData(await this.loadData());
+		const savedSettings = loaded.settings || loaded;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, savedSettings);
+		this.settings.privacy = Object.assign({}, DEFAULT_SETTINGS.privacy, savedSettings.privacy || loaded.privacy);
+		this.activeSessions = Array.isArray(loaded.activeSessions) ? loaded.activeSessions : [];
 	}
 
 	async saveSettings() {
@@ -564,14 +578,14 @@ export default class MyLocPlugin extends Plugin {
 	private getDailyNotesSettings(): { format: string; folder: string } {
 		const internalPlugins = (this.app as unknown as {
 			internalPlugins?: {
-				plugins?: Record<string, { instance?: { options?: Record<string, unknown> } }>;
+				plugins?: Record<string, { instance?: { options?: DailyNotesPluginOptions } }>;
 			};
 		}).internalPlugins;
-		const options = internalPlugins?.plugins?.["daily-notes"]?.instance?.options || {};
-		const format = typeof options["format"] === "string" && options["format"].trim()
-			? options["format"]
+		const options = internalPlugins?.plugins?.["daily-notes"]?.instance?.options;
+		const format = typeof options?.format === "string" && options.format.trim()
+			? options.format
 			: "YYYY-MM-DD";
-		const folder = typeof options["folder"] === "string" ? options["folder"].trim().replace(/\/+$/g, "") : "";
+		const folder = typeof options?.folder === "string" ? options.folder.trim().replace(/\/+$/g, "") : "";
 		return { format, folder };
 	}
 
@@ -580,10 +594,7 @@ export default class MyLocPlugin extends Plugin {
 		before?: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" };
 		after?: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" };
 	}> {
-		const timelineRoot = `${this.locationService.getTimelineFolder()}/`;
-		const files = this.app.vault.getMarkdownFiles()
-			.filter((file) => file.path.startsWith(timelineRoot))
-			.sort((a, b) => a.path.localeCompare(b.path));
+		const files = this.locationService.getTimelineFiles();
 		const activeByPlace = new Map<string, { placeLabel: string; startedAtLabel: string; startedAt: moment.Moment }>();
 		const dailyFormat = this.settings.dailyNoteFormat || this.getDailyNotesSettings().format;
 		let lastEventBefore: { placePath: string; placeLabel: string; eventLabel: string; action: "in" | "out" } | undefined;
@@ -606,7 +617,7 @@ export default class MyLocPlugin extends Plugin {
 					placePath: parsed.placePath,
 					placeLabel: parsed.placeLabel,
 					eventLabel: `${parsed.dailyNoteLabel} ${parsed.time}`,
-					action: parsed.action as "in" | "out",
+					action: parsed.action,
 				};
 
 				if (eventMoment.isAfter(targetMoment)) {
@@ -646,5 +657,12 @@ export default class MyLocPlugin extends Plugin {
 			before: matches.length === 0 ? lastEventBefore : undefined,
 			after: matches.length === 0 ? firstEventAfter : undefined,
 		};
+	}
+
+	private asPersistedData(data: unknown): PersistedPluginData {
+		if (!data || typeof data !== "object") {
+			return {};
+		}
+		return data as PersistedPluginData;
 	}
 }
