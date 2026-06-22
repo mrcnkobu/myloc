@@ -22,6 +22,7 @@ export interface LoginModalResult {
 	selectedPaths: string[];
 	inlinePaths: string[];
 	createPlace?: CreatePlaceInput;
+	createPlaceSelected: boolean;
 	createPlaceWriteInline: boolean;
 }
 
@@ -340,6 +341,8 @@ export class LoginModal extends Modal {
 	private selectedPaths: Set<string>;
 	private inlinePaths: Set<string>;
 	private createPlace: CreatePlaceInput | undefined;
+	private createPlaceSelected = true;
+	private createPlaceInline = true;
 
 	constructor(
 		app: App,
@@ -425,11 +428,44 @@ export class LoginModal extends Modal {
 
 		contentEl.createDiv({ cls: "myloc-section-divider" });
 
-		const createdPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
-		const manualPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
 		if (this.createPlace) {
-			createdPlaceSummary.setText(`New place ready: ${this.createPlace.path} · ${this.createPlace.radius} m`);
+			contentEl.createEl("h4", { text: "New place" });
+			const setting = new Setting(contentEl).setName(this.createPlace.inlineName.trim() || this.getDraftPlaceName(this.createPlace)).setDesc("");
+			setting.settingEl.addClass("myloc-place-item");
+			setting.descEl.empty();
+			setting.descEl.createEl("div", {
+				cls: "myloc-place-link",
+				text: this.createPlace.path,
+			});
+			setting.descEl.createEl("div", {
+				cls: "myloc-distance-meta",
+				text: `New place at current location · radius ${this.createPlace.radius} m`,
+			});
+			const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+			inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
+			const inlineToggle = new ToggleComponent(inlineControl);
+			inlineToggle.setValue(this.createPlaceInline).onChange((value) => {
+				this.createPlaceInline = value;
+			});
+			inlineControl.style.display = this.createPlaceSelected ? "" : "none";
+			setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
+			setting.addToggle((selectToggle) =>
+				selectToggle.setValue(this.createPlaceSelected).onChange((value) => {
+					this.createPlaceSelected = value;
+					if (value) {
+						this.createPlaceInline = true;
+						inlineToggle.setValue(true);
+						inlineControl.style.display = "";
+					} else {
+						this.createPlaceInline = false;
+						inlineToggle.setValue(false);
+						inlineControl.style.display = "none";
+					}
+				})
+			);
 		}
+
+		const manualPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
 		if (this.selectedPaths.size > 0) {
 			const manualOnlyCount = Array.from(this.selectedPaths).filter(
 				(path) => !this.matches.some((match) => match.place.path === path)
@@ -447,7 +483,9 @@ export class LoginModal extends Modal {
 					new CreatePlaceModal(this.app, this.defaultRadius, {}, (result) => {
 						if (!result) return;
 						this.createPlace = result;
-						createdPlaceSummary.setText(`New place ready: ${result.path} · ${result.radius} m`);
+						this.createPlaceSelected = true;
+						this.createPlaceInline = true;
+						this.onOpen();
 					}).open();
 				})
 			);
@@ -490,7 +528,8 @@ export class LoginModal extends Modal {
 						selectedPaths: Array.from(this.selectedPaths),
 						inlinePaths: Array.from(this.inlinePaths).filter((p) => this.selectedPaths.has(p)),
 						createPlace: this.createPlace,
-						createPlaceWriteInline: this.inlineDefault,
+						createPlaceSelected: this.createPlaceSelected,
+						createPlaceWriteInline: this.createPlaceInline,
 					};
 					this.close();
 				})
@@ -505,6 +544,10 @@ export class LoginModal extends Modal {
 	onClose() {
 		this.contentEl.empty();
 		this.onCloseResult(this.result);
+	}
+
+	private getDraftPlaceName(place: CreatePlaceInput): string {
+		return place.path.split("/").pop() || place.path;
 	}
 }
 

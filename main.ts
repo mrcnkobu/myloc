@@ -214,6 +214,7 @@ export default class MyLocPlugin extends Plugin {
 			selectedPaths: string[];
 			inlinePaths: string[];
 			createPlace?: CreatePlaceInput;
+			createPlaceSelected: boolean;
 			createPlaceWriteInline: boolean;
 		} | null>((resolve) => {
 			new LoginModal(
@@ -241,9 +242,11 @@ export default class MyLocPlugin extends Plugin {
 
 		if (result.createPlace) {
 			const created = await this.createPlaceAtLocation(location, result.createPlace);
-			selectedPlaces.push(created);
-			if (result.createPlaceWriteInline) {
-				inlinePathSet.add(created.path);
+			if (result.createPlaceSelected) {
+				selectedPlaces.push(created);
+				if (result.createPlaceWriteInline) {
+					inlinePathSet.add(created.path);
+				}
 			}
 		}
 
