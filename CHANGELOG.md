@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 - 2026-06-22
+
+This release adds a second wave of workflow polish on top of the 0.2.0 rebuild.
+
+- Added historical lookup from `Active places` with `Check past time...`, reconstructing active places from timeline entries
+- Enabled inline logging by default for new installs
+- Improved login flow so detected places and drafted new places expose inline behavior directly in the selection list
+- Added support for creating a new place from the login modal and deciding immediately whether to log in there
+- Improved login, logout, and active-place modals with clearer place rows, inline toggles, and direct file links
+- Changed timeline entries to use daily-note links with hidden folder paths and aliased place links
+- Improved place-note logs to show the daily-note link first
+- Added manual saved-place selection during login and a dedicated `Create place note manually` command
+- Added configurable daily note filename format for generated daily-note links
+- Polished inline log placement and heading behavior
+- Expanded tests for timeline parsing and note insertion behavior
+
 ## 0.2.0 - 2026-06-21
 
 This release rebuilds MyLoc around file-backed places, active sessions, and timeline logging.
