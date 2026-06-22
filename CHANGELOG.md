@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4 - 2026-06-22
+
+This release republishes the final settings-tab compatibility adjustment for automated review.
+
+- Restored the settings tab to canonical `Setting` rows with `setHeading()`
+- Removed the temporary custom settings-row implementation and related CSS
+- Keeps the same settings behavior while aligning more closely with expected Obsidian UI patterns
+
 ## 0.3.3 - 2026-06-22
 
 This release removes the last settings-tab compatibility issue reported by automated review.
