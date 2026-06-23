@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.7 - 2026-06-23
+
+This release improves the manual login flow for saved places.
+
+- Manually selected saved places now reappear in the login modal as normal place rows
+- Manual selections now support explicit per-place inline append toggles, matching detected places
+- Removed the old manual-selection summary-only behavior in favor of the full place-row UI
+
 ## 0.3.6 - 2026-06-22
 
 This release removes direct settings-property access from the settings tab for automated review.

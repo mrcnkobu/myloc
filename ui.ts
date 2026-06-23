@@ -386,59 +386,29 @@ export class LoginModal extends Modal {
 			cls: "setting-item-description",
 		});
 
+		const nearbyPaths = new Set(this.matches.map((match) => match.place.path));
+		const manualSelectedPlaces = this.allPlaces.filter(
+			(place) => this.selectedPaths.has(place.path) && !nearbyPaths.has(place.path)
+		);
+
 		if (this.matches.length > 0) {
 			contentEl.createEl("h4", { text: "Nearby places" });
 			for (const match of this.matches) {
-				const inlineLabel = match.place.inlineName.trim() || match.place.name;
-				const isActive = this.activePaths.has(match.place.path);
-				const setting = new Setting(contentEl).setName(inlineLabel).setDesc("");
-				setting.settingEl.addClass("myloc-place-item");
-				if (isActive) setting.settingEl.addClass("myloc-active-session");
-				setting.descEl.empty();
-				const link = setting.descEl.createEl("a", {
-					text: "Open",
-					cls: "myloc-place-link",
-					href: "#",
+				this.renderSelectablePlaceRow(contentEl, match.place, {
+					distanceText: `${Math.round(match.distance)} m away`,
 				});
-				link.addEventListener("click", (event) => {
-					event.preventDefault();
-					this.close();
-					void this.app.workspace.openLinkText(match.place.path.replace(/\.md$/, ""), "", false);
-				});
-				setting.descEl.createEl("div", {
-					cls: "myloc-distance-meta",
-					text: `${Math.round(match.distance)} m away${isActive ? " · already active" : ""}`,
-				});
-				const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
-				inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
-				const inlineToggle = new ToggleComponent(inlineControl);
-				inlineToggle.setValue(this.inlinePaths.has(match.place.path)).onChange((value) => {
-					if (value) this.inlinePaths.add(match.place.path);
-					else this.inlinePaths.delete(match.place.path);
-				});
-				setInlineControlVisibility(inlineControl, !isActive && this.selectedPaths.has(match.place.path));
-				setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
-				setting.addToggle((selectToggle) =>
-					selectToggle
-						.setValue(!isActive && this.selectedPaths.has(match.place.path))
-						.setDisabled(isActive)
-						.onChange((value) => {
-							if (value) {
-								this.selectedPaths.add(match.place.path);
-								if (this.inlineDefault) {
-									this.inlinePaths.add(match.place.path);
-								}
-								setInlineControlVisibility(inlineControl, true);
-							} else {
-								this.selectedPaths.delete(match.place.path);
-								this.inlinePaths.delete(match.place.path);
-								setInlineControlVisibility(inlineControl, false);
-							}
-						})
-				);
 			}
 		} else {
 			contentEl.createEl("p", { text: "No nearby saved places detected.", cls: "setting-item-description" });
+		}
+
+		if (manualSelectedPlaces.length > 0) {
+			contentEl.createEl("h4", { text: "Manually selected places" });
+			for (const place of manualSelectedPlaces) {
+				this.renderSelectablePlaceRow(contentEl, place, {
+					distanceText: "Selected manually",
+				});
+			}
 		}
 
 		contentEl.createDiv({ cls: "myloc-section-divider" });
@@ -478,16 +448,6 @@ export class LoginModal extends Modal {
 					}
 				})
 			);
-		}
-
-		const manualPlaceSummary = contentEl.createDiv({ cls: "setting-item-description" });
-		if (this.selectedPaths.size > 0) {
-			const manualOnlyCount = Array.from(this.selectedPaths).filter(
-				(path) => !this.matches.some((match) => match.place.path === path)
-			).length;
-			if (manualOnlyCount > 0) {
-				manualPlaceSummary.setText(`Manually selected: ${manualOnlyCount} place${manualOnlyCount === 1 ? "" : "s"}`);
-			}
 		}
 
 		new Setting(contentEl)
@@ -563,6 +523,62 @@ export class LoginModal extends Modal {
 
 	private getDraftPlaceName(place: CreatePlaceInput): string {
 		return place.path.split("/").pop() || place.path;
+	}
+
+	private renderSelectablePlaceRow(
+		contentEl: HTMLElement,
+		place: PlaceRecord,
+		options: {
+			distanceText: string;
+		}
+	): void {
+		const inlineLabel = place.inlineName.trim() || place.name;
+		const isActive = this.activePaths.has(place.path);
+		const setting = new Setting(contentEl).setName(inlineLabel).setDesc("");
+		setting.settingEl.addClass("myloc-place-item");
+		if (isActive) setting.settingEl.addClass("myloc-active-session");
+		setting.descEl.empty();
+		const link = setting.descEl.createEl("a", {
+			text: "Open",
+			cls: "myloc-place-link",
+			href: "#",
+		});
+		link.addEventListener("click", (event) => {
+			event.preventDefault();
+			this.close();
+			void this.app.workspace.openLinkText(place.path.replace(/\.md$/, ""), "", false);
+		});
+		setting.descEl.createEl("div", {
+			cls: "myloc-distance-meta",
+			text: `${options.distanceText}${isActive ? " · already active" : ""}`,
+		});
+		const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+		inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
+		const inlineToggle = new ToggleComponent(inlineControl);
+		inlineToggle.setValue(this.inlinePaths.has(place.path)).onChange((value) => {
+			if (value) this.inlinePaths.add(place.path);
+			else this.inlinePaths.delete(place.path);
+		});
+		setInlineControlVisibility(inlineControl, !isActive && this.selectedPaths.has(place.path));
+		setting.controlEl.createSpan({ cls: "myloc-control-label", text: "log in" });
+		setting.addToggle((selectToggle) =>
+			selectToggle
+				.setValue(!isActive && this.selectedPaths.has(place.path))
+				.setDisabled(isActive)
+				.onChange((value) => {
+					if (value) {
+						this.selectedPaths.add(place.path);
+						if (this.inlineDefault) {
+							this.inlinePaths.add(place.path);
+						}
+						setInlineControlVisibility(inlineControl, true);
+					} else {
+						this.selectedPaths.delete(place.path);
+						this.inlinePaths.delete(place.path);
+						setInlineControlVisibility(inlineControl, false);
+					}
+				})
+		);
 	}
 }
 
