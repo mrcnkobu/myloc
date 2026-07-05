@@ -17,6 +17,10 @@ export default [
 			parser: tsParser,
 			ecmaVersion: "latest",
 			sourceType: "module",
+			parserOptions: {
+				project: "./tsconfig.json",
+				tsconfigRootDir: import.meta.dirname,
+			},
 			globals: {
 				...globals.browser,
 				...globals.node,
@@ -26,9 +30,18 @@ export default [
 			"@typescript-eslint": tsPlugin,
 		},
 		rules: {
-			...tsPlugin.configs.recommended.rules,
+			...tsPlugin.configs["recommended-type-checked"].rules,
 			"no-console": "warn",
 			"no-undef": "off",
+		},
+	},
+	{
+		// node:test's test() calls and the fake vault/editor mocks legitimately
+		// trip these type-checked rules; they add no value in the test harness.
+		files: ["tests/**/*.ts"],
+		rules: {
+			"@typescript-eslint/no-floating-promises": "off",
+			"@typescript-eslint/require-await": "off",
 		},
 	},
 ];

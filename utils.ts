@@ -14,8 +14,8 @@ export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2
 
 export function formatDatePattern(date: Date, pattern: string, timezone: string): string {
 	const parts: Record<string, string> = {};
-	const get = (opts: Intl.DateTimeFormatOptions) =>
-		new Intl.DateTimeFormat("en-US", { ...opts, timeZone: timezone }).format(date);
+	const get = (opts: Intl.DateTimeFormatOptions): string =>
+		String(new Intl.DateTimeFormat("en-US", { ...opts, timeZone: timezone }).format(date));
 
 	const year = get({ year: "numeric" });
 	const month = get({ month: "2-digit" });
