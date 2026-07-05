@@ -127,3 +127,60 @@ test("buildPlaceNoteContent creates frontmatter, details and a log section", () 
 	assert.match(content, /## Details/);
 	assert.match(content, /## Log/);
 });
+
+test("buildPlaceNoteContent escapes newlines, quotes and backslashes in frontmatter", () => {
+	const { service } = createNoteServiceWithContent("");
+	const weird = 'Line one\nLine "two" with C:\\path';
+	const place: PlaceRecord = {
+		path: "Places/Test.md",
+		name: "Test",
+		inlineName: "",
+		inlineText: weird,
+		latitude: 1,
+		longitude: 2,
+		radius: 100,
+		tags: [],
+	};
+
+	const content = service.buildPlaceNoteContent(place, { address: null, mapUrl: "https://example.com" });
+
+	// The inline_text value stays on a single frontmatter line (no raw newline break).
+	assert.ok(content.includes(`inline_text: ${JSON.stringify(weird)}`));
+	// Frontmatter remains structurally intact: location line follows immediately.
+	assert.match(content, /inline_text: .*\nlocation: \[1\.000000, 2\.000000\]/);
+});
+
+test("buildVisitNoteContent mirrors the place, drops radius and adds creation date/time", () => {
+	const { service } = createNoteServiceWithContent("");
+	const place: PlaceRecord = {
+		path: "Places/France/Paris/Pantheon.md",
+		name: "Pantheon",
+		inlineName: "Latin Quarter",
+		inlineText: "At {place}",
+		latitude: 48.846222,
+		longitude: 2.346414,
+		radius: 120,
+		tags: ["paris", "history"],
+	};
+
+	const content = service.buildVisitNoteContent(place, {
+		latitude: 48.846000,
+		longitude: 2.346000,
+		address: "Rue Soufflot, Paris, France",
+		mapUrl: "https://example.com",
+		placeLink: "[[Places/France/Paris/Pantheon|Pantheon]]",
+		createdDate: "2026-07-04",
+		createdTime: "16:30",
+		createdDateTime: "2026-07-04 16:30",
+	});
+
+	assert.match(content, /myloc-type: visit/);
+	assert.match(content, /name: "Pantheon"/);
+	assert.doesNotMatch(content, /radius:/);
+	assert.doesNotMatch(content, /inline_name:/);
+	assert.match(content, /created_date: 2026-07-04/);
+	assert.match(content, /created_time: 16:30/);
+	assert.match(content, /location: \[48\.846000, 2\.346000\]/);
+	assert.match(content, /- Place: \[\[Places\/France\/Paris\/Pantheon\|Pantheon\]\]/);
+	assert.match(content, /## Notes/);
+});

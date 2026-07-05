@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 - 2026-07-05
+
+This release adds optional per-visit notes and hardens place-note frontmatter.
+
+- Added optional per-visit notes: enable the "visit note" toggle for a place in the Log in flow to create a note for that specific visit
+- Visit notes are stored under `_visit-notes/<yyyy-MM>/` as `{yyyymmddhhmm}_{place}` and seeded with the visit time, location, and a link back to the place note
+- The visit note is linked from the place log's login line and from the inline login text, and created visit notes open automatically
+- Added a "Visit notes folder name" setting
+- Fixed place-note frontmatter escaping so quotes, backslashes, and multi-line `inline_text` can no longer corrupt the YAML
+- The reverse-geocoding User-Agent now reflects the installed plugin version
+- The timezone setting keeps a previously-saved custom value selectable, and place creation shows an address-lookup progress notice
+- Refreshed README and contributor docs
+
 ## 0.3.7 - 2026-06-23
 
 This release improves the manual login flow for saved places.

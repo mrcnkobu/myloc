@@ -36,9 +36,11 @@ export interface CreatePlaceInput {
 export interface LoginModalResult {
 	selectedPaths: string[];
 	inlinePaths: string[];
+	visitPaths: string[];
 	createPlace?: CreatePlaceInput;
 	createPlaceSelected: boolean;
 	createPlaceWriteInline: boolean;
+	createPlaceWriteVisit: boolean;
 }
 
 export interface LogoutModalResult {
@@ -355,9 +357,11 @@ export class LoginModal extends Modal {
 	private result: LoginModalResult | null = null;
 	private selectedPaths: Set<string>;
 	private inlinePaths: Set<string>;
+	private visitPaths = new Set<string>();
 	private createPlace: CreatePlaceInput | undefined;
 	private createPlaceSelected = true;
 	private createPlaceInline = true;
+	private createPlaceVisit = false;
 
 	constructor(
 		app: App,
@@ -426,6 +430,13 @@ export class LoginModal extends Modal {
 				cls: "myloc-distance-meta",
 				text: `New place at current location · radius ${this.createPlace.radius} m`,
 			});
+			const visitControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+			visitControl.createSpan({ cls: "myloc-control-label", text: "visit note" });
+			const visitToggle = new ToggleComponent(visitControl);
+			visitToggle.setValue(this.createPlaceVisit).onChange((value) => {
+				this.createPlaceVisit = value;
+			});
+			setInlineControlVisibility(visitControl, this.createPlaceSelected);
 			const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
 			inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
 			const inlineToggle = new ToggleComponent(inlineControl);
@@ -441,10 +452,14 @@ export class LoginModal extends Modal {
 						this.createPlaceInline = true;
 						inlineToggle.setValue(true);
 						setInlineControlVisibility(inlineControl, true);
+						setInlineControlVisibility(visitControl, true);
 					} else {
 						this.createPlaceInline = false;
+						this.createPlaceVisit = false;
 						inlineToggle.setValue(false);
+						visitToggle.setValue(false);
 						setInlineControlVisibility(inlineControl, false);
+						setInlineControlVisibility(visitControl, false);
 					}
 				})
 			);
@@ -502,9 +517,11 @@ export class LoginModal extends Modal {
 					this.result = {
 						selectedPaths: Array.from(this.selectedPaths),
 						inlinePaths: Array.from(this.inlinePaths).filter((p) => this.selectedPaths.has(p)),
+						visitPaths: Array.from(this.visitPaths).filter((p) => this.selectedPaths.has(p)),
 						createPlace: this.createPlace,
 						createPlaceSelected: this.createPlaceSelected,
 						createPlaceWriteInline: this.createPlaceInline,
+						createPlaceWriteVisit: this.createPlaceVisit,
 					};
 					this.close();
 				})
@@ -552,6 +569,14 @@ export class LoginModal extends Modal {
 			cls: "myloc-distance-meta",
 			text: `${options.distanceText}${isActive ? " · already active" : ""}`,
 		});
+		const visitControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
+		visitControl.createSpan({ cls: "myloc-control-label", text: "visit note" });
+		const visitToggle = new ToggleComponent(visitControl);
+		visitToggle.setValue(this.visitPaths.has(place.path)).onChange((value) => {
+			if (value) this.visitPaths.add(place.path);
+			else this.visitPaths.delete(place.path);
+		});
+		setInlineControlVisibility(visitControl, !isActive && this.selectedPaths.has(place.path));
 		const inlineControl = setting.controlEl.createDiv({ cls: "myloc-inline-control" });
 		inlineControl.createSpan({ cls: "myloc-control-label", text: "inline" });
 		const inlineToggle = new ToggleComponent(inlineControl);
@@ -572,10 +597,14 @@ export class LoginModal extends Modal {
 							this.inlinePaths.add(place.path);
 						}
 						setInlineControlVisibility(inlineControl, true);
+						setInlineControlVisibility(visitControl, true);
 					} else {
 						this.selectedPaths.delete(place.path);
 						this.inlinePaths.delete(place.path);
+						this.visitPaths.delete(place.path);
+						visitToggle.setValue(false);
 						setInlineControlVisibility(inlineControl, false);
+						setInlineControlVisibility(visitControl, false);
 					}
 				})
 		);
@@ -1008,6 +1037,18 @@ export class MyLocSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
+			.setName("Visit notes folder name")
+			.setDesc("Created inside the places root folder. Visit notes are grouped by month inside it.")
+			.addText((text: TextComponent) => {
+				text.setValue(settings.visitNotesFolderName);
+				text.onChange((value) => {
+					void this.myLocPlugin.updateMyLocSettings((current) => {
+						current.visitNotesFolderName = value.trim() || "_visit-notes";
+					});
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("Default radius")
 			.setDesc("Used when creating a new place")
 			.addText((text: TextComponent) => {
@@ -1132,6 +1173,9 @@ export class MyLocSettingTab extends PluginSettingTab {
 				dropdown.addOption("", `Auto (${systemTz})`);
 				for (const tz of TIMEZONES) {
 					dropdown.addOption(tz, tz);
+				}
+				if (settings.timezone && !TIMEZONES.includes(settings.timezone)) {
+					dropdown.addOption(settings.timezone, settings.timezone);
 				}
 				dropdown.setValue(settings.timezone);
 				dropdown.onChange((value) => {

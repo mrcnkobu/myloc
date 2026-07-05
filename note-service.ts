@@ -97,12 +97,34 @@ class NoteService {
 	}
 
 	buildPlaceNoteContent(place: PlaceRecord, details: { address?: string | null; mapUrl: string }): string {
-		const tagsBlock = place.tags.length > 0
-			? `tags:\n${place.tags.map((tag) => `  - ${tag}`).join("\n")}\n`
+		return `---\nmyloc-type: place\nname: ${this.yamlString(place.name)}\ninline_name: ${this.yamlString(place.inlineName || "")}\ninline_text: ${this.yamlString(place.inlineText || "")}\nlocation: [${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}]\nradius: ${place.radius}\n${this.yamlTagsBlock(place.tags)}---\n\n# ${place.name}\n\n## Details\n- Address: ${details.address || "Unknown"}\n- Coordinates: ${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}\n- Radius: ${place.radius} m\n- Map: [Open in Map](${details.mapUrl})\n\n## Log\n`;
+	}
+
+	buildVisitNoteContent(place: PlaceRecord, details: {
+		latitude: number;
+		longitude: number;
+		address?: string | null;
+		mapUrl: string;
+		placeLink: string;
+		createdDate: string;
+		createdTime: string;
+		createdDateTime: string;
+	}): string {
+		const lat = details.latitude.toFixed(6);
+		const lon = details.longitude.toFixed(6);
+		return `---\nmyloc-type: visit\nname: ${this.yamlString(place.name)}\nlocation: [${lat}, ${lon}]\n${this.yamlTagsBlock(place.tags)}created_date: ${details.createdDate}\ncreated_time: ${details.createdTime}\n---\n\n# ${place.name} — ${details.createdDateTime}\n\n- Place: ${details.placeLink}\n- Coordinates: ${lat}, ${lon}\n- Map: [Open in Map](${details.mapUrl})\n- Address: ${details.address || "Unknown"}\n\n## Notes\n\n`;
+	}
+
+	private yamlString(value: string): string {
+		// JSON strings are valid YAML double-quoted scalars, so this safely
+		// escapes quotes, backslashes, and newlines that would break frontmatter.
+		return JSON.stringify(value ?? "");
+	}
+
+	private yamlTagsBlock(tags: string[]): string {
+		return tags.length > 0
+			? `tags:\n${tags.map((tag) => `  - ${this.yamlString(tag)}`).join("\n")}\n`
 			: "tags: []\n";
-		const inlineName = place.inlineName ? place.inlineName.replace(/"/g, '\\"') : "";
-		const inlineText = place.inlineText ? place.inlineText.replace(/"/g, '\\"') : "";
-		return `---\nmyloc-type: place\nname: "${place.name.replace(/"/g, '\\"')}"\ninline_name: "${inlineName}"\ninline_text: "${inlineText}"\nlocation: [${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}]\nradius: ${place.radius}\n${tagsBlock}---\n\n# ${place.name}\n\n## Details\n- Address: ${details.address || "Unknown"}\n- Coordinates: ${place.latitude.toFixed(6)}, ${place.longitude.toFixed(6)}\n- Radius: ${place.radius} m\n- Map: [Open in Map](${details.mapUrl})\n\n## Log\n`;
 	}
 
 	private isFileLike(value: unknown): value is TFile {

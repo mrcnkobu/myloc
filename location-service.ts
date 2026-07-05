@@ -12,6 +12,7 @@ import { formatDatePattern, haversineDistance, sanitizeFilename } from "./utils"
 
 interface LocationServiceDeps {
 	isMobile: boolean;
+	version: string;
 	requestUrl: typeof import("obsidian").requestUrl;
 }
 
@@ -109,6 +110,20 @@ class LocationService {
 		return `${this.getTimelineFolder()}/${month}.md`;
 	}
 
+	getVisitNotesFolder(): string {
+		return this.normalizeVaultPath(`${this.getPlacesRoot()}/${this.getSettings().visitNotesFolderName}`);
+	}
+
+	getVisitNoteMonthFolder(date: Date): string {
+		const month = formatDatePattern(date, "yyyy-MM", this.getTimezone());
+		return `${this.getVisitNotesFolder()}/${month}`;
+	}
+
+	getVisitNoteBasename(date: Date, placeName: string): string {
+		const stamp = formatDatePattern(date, "yyyyMMddHHmm", this.getTimezone());
+		return `${stamp}_${placeName}`;
+	}
+
 	getPlaceFilePath(relativePath: string): string {
 		const normalized = this.normalizeVaultPath(relativePath);
 		const segments = normalized.split("/").map((segment) => sanitizeFilename(segment));
@@ -129,6 +144,7 @@ class LocationService {
 	getAllPlaces(): PlaceRecord[] {
 		return this.getMarkdownFilesInFolder(this.getPlacesRoot())
 			.filter((file) => !file.path.startsWith(`${this.getTimelineFolder()}/`))
+			.filter((file) => !file.path.startsWith(`${this.getVisitNotesFolder()}/`))
 			.map((file) => this.parsePlaceFile(file))
 			.filter((place): place is PlaceRecord => place !== null)
 			.sort((a, b) => a.path.localeCompare(b.path));
@@ -194,7 +210,7 @@ class LocationService {
 		}
 
 		const headers: Record<string, string> = {
-			"User-Agent": "ObsidianMyLocPlugin/0.1.0",
+			"User-Agent": `ObsidianMyLocPlugin/${this.deps.version}`,
 		};
 
 		if (this.getSettings().language) {

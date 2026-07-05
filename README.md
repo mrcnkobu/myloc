@@ -45,6 +45,7 @@ Inline insertion into the current note is optional.
 - Insert the current location into a note without changing session state
 - Prompt to log in first when inserting inside unlogged nearby places
 - Use place-specific `inline_text` for insert output when available
+- Optionally create a per-visit note when logging in, for free-form notes about that specific visit
 
 ## Commands
 
@@ -86,6 +87,7 @@ Behavior:
   - the place note
   - the monthly timeline
 - optionally appends inline login text to the current note
+- optionally creates a per-visit note for a selected place (see `Visit Notes`)
 
 ### `Log out`
 
@@ -201,6 +203,48 @@ The daily-note link uses the configured daily note filename as its display text,
 
 Timeline entries do not include the note from which the command was run.
 
+## Visit Notes
+
+Presence logging records the *fact* of a visit. A visit note is an optional place to write *about* a specific visit.
+
+Visit notes are created only from the `Log in` flow: each selected place shows a `visit` toggle (off by default). Enable it to create a visit note for that login.
+
+Visit notes are stored in their own folder under the places root, grouped by month:
+
+```text
+Places/_visit-notes/2026-07/202607041630_Pantheon.md
+```
+
+The filename is `{yyyymmddhhmm}_{place name}`. Each note is seeded with the creation time, the location captured at login, a link back to the place note, and an empty `## Notes` section for you to fill in:
+
+```yaml
+---
+myloc-type: visit
+name: "Pantheon"
+location: [48.846222, 2.346414]
+tags:
+  - paris
+  - monument
+created_date: 2026-07-04
+created_time: 16:30
+---
+```
+
+```md
+# Pantheon — 2026-07-04 16:30
+
+- Place: [[Places/France/Paris/Pantheon|Pantheon]]
+- Coordinates: 48.846222, 2.346414
+- Map: [Open in Map](...)
+- Address: Rue Soufflot, Paris, France
+
+## Notes
+```
+
+The visit note is linked back from the place note's login line and, when inline logging is enabled, from the inline login text in your current note. Created visit notes open automatically so you can start writing.
+
+Because visit notes carry `myloc-type: visit` (not `place`), they are never treated as places or matched against your location.
+
 ## Inline Logging
 
 Login/logout can optionally append text to the current note.
@@ -264,6 +308,7 @@ The plugin settings are intentionally small.
 
 - `Places root folder`
 - `Timeline folder name`
+- `Visit notes folder name`
 - `Default radius`
 
 ### Inline logging
@@ -280,6 +325,8 @@ The plugin settings are intentionally small.
 - `Allow approximate IP fallback`
 - `Address language`
 - `Timezone`
+
+> Privacy: when `Allow reverse geocoding` is enabled (the default), your coordinates are sent over HTTPS to OpenStreetMap Nominatim to resolve an address. When `Allow approximate IP fallback` is enabled, your IP is sent to an IP-geolocation service. Both can be turned off; GPS/geolocation itself never leaves the device.
 
 ## Usage Examples
 

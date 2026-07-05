@@ -48,6 +48,7 @@ function createLocationService(places: PlaceRecord[] = []) {
 		() => "Europe/Warsaw",
 		{
 			isMobile: false,
+			version: "0.0.0-test",
 			requestUrl: (async () => {
 				throw new Error("requestUrl should not be called in this test");
 			}) as never,

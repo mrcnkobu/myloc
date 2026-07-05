@@ -1,6 +1,6 @@
 {
 	"name": "myloc",
-	"version": "0.3.7",
+	"version": "0.4.0",
 	"description": "Location logging, place-aware insertion, and timeline tracking",
 	"main": "main.js",
 	"scripts": {

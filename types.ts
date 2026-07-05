@@ -32,6 +32,7 @@ export interface ActivePlaceSession {
 }
 
 export interface InlineTemplateContext {
+	[key: string]: string;
 	place: string;
 	placeName: string;
 	inlineName: string;
@@ -50,6 +51,7 @@ export interface PrivacySettings {
 export interface MyLocSettings {
 	placesRoot: string;
 	timelineFolderName: string;
+	visitNotesFolderName: string;
 	defaultRadius: number;
 	inlineLoggingDefault: boolean;
 	inlineLogHeading: string;
@@ -66,6 +68,7 @@ export interface MyLocSettings {
 export const DEFAULT_SETTINGS: MyLocSettings = {
 	placesRoot: "Places",
 	timelineFolderName: "_timeline",
+	visitNotesFolderName: "_visit-notes",
 	defaultRadius: 200,
 	inlineLoggingDefault: true,
 	inlineLogHeading: "",

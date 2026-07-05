@@ -8,7 +8,7 @@ import {
 	type MyLocSettings,
 	type PlaceRecord,
 } from "./types";
-import { formatDuration, generateId, getSystemTimezone, parseTimelineLine } from "./utils";
+import { formatDatePattern, formatDuration, generateId, getSystemTimezone, parseTimelineLine } from "./utils";
 import {
 	ActivePlacesModal,
 	CreatePlaceModal,
@@ -51,6 +51,7 @@ export default class MyLocPlugin extends Plugin {
 			() => this.getTimezone(),
 			{
 				isMobile: Platform.isMobile,
+				version: this.manifest.version,
 				requestUrl,
 			}
 		);
@@ -236,9 +237,11 @@ export default class MyLocPlugin extends Plugin {
 		const result = await new Promise<{
 			selectedPaths: string[];
 			inlinePaths: string[];
+			visitPaths: string[];
 			createPlace?: CreatePlaceInput;
 			createPlaceSelected: boolean;
 			createPlaceWriteInline: boolean;
+			createPlaceWriteVisit: boolean;
 		} | null>((resolve) => {
 			new LoginModal(
 				this.app,
@@ -254,6 +257,7 @@ export default class MyLocPlugin extends Plugin {
 		if (!result) return 0;
 
 		const inlinePathSet = new Set(result.inlinePaths);
+		const visitPathSet = new Set(result.visitPaths);
 		const placesByPath = new Map(allPlaces.map((place) => [place.path, place]));
 		const selectedPlaces: PlaceRecord[] = [];
 		for (const path of result.selectedPaths) {
@@ -270,12 +274,16 @@ export default class MyLocPlugin extends Plugin {
 				if (result.createPlaceWriteInline) {
 					inlinePathSet.add(created.path);
 				}
+				if (result.createPlaceWriteVisit) {
+					visitPathSet.add(created.path);
+				}
 			}
 		}
 
 		if (selectedPlaces.length === 0) return 0;
 
 		let loggedInCount = 0;
+		const createdVisitNotePaths: string[] = [];
 		for (const place of selectedPlaces) {
 			if (this.activeSessions.some((session) => session.placePath === place.path)) {
 				continue;
@@ -291,16 +299,31 @@ export default class MyLocPlugin extends Plugin {
 				startedLongitude: location.longitude,
 			};
 			this.activeSessions.push(session);
-			await this.appendPlaceLog(place, this.formatLoginEvent(session.startedAt));
+
+			let visitLink = "";
+			if (visitPathSet.has(place.path)) {
+				const visit = await this.createVisitNote(place, location, session.startedAt);
+				visitLink = visit.link;
+				createdVisitNotePaths.push(visit.path);
+			}
+
+			await this.appendPlaceLog(place, this.formatLoginEvent(session.startedAt, visitLink));
 			await this.appendTimelineLog(this.formatTimelineLogin(place, session.startedAt));
 
 			if (inlinePathSet.has(place.path)) {
-				await this.appendInlineLog(this.settings.inlineLoginTemplate, place, session.startedAt);
+				await this.appendInlineLog(this.settings.inlineLoginTemplate, place, session.startedAt, "", visitLink);
 			}
 			loggedInCount++;
 		}
 
 		await this.saveSettings();
+
+		// Open created visit notes last so they don't steal the active editor
+		// before inline logging has written to it.
+		for (const path of createdVisitNotePaths) {
+			await this.app.workspace.openLinkText(path.replace(/\.md$/, ""), "", true);
+		}
+
 		return loggedInCount;
 	}
 
@@ -427,11 +450,14 @@ export default class MyLocPlugin extends Plugin {
 		const dir = path.slice(0, lastSlash);
 		await this.locationService.ensureFolderExists(dir);
 
+		const addressNotice = new Notice("Looking up address...", 0);
 		let address: AddressResult | null = null;
 		try {
 			address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
 		} catch {
 			// Place creation still works without a resolved address.
+		} finally {
+			addressNotice.hide();
 		}
 
 		const pathParts = path.replace(/\.md$/, "").split("/");
@@ -453,6 +479,47 @@ export default class MyLocPlugin extends Plugin {
 		});
 		await this.app.vault.create(path, content);
 		return place;
+	}
+
+	private async createVisitNote(
+		place: PlaceRecord,
+		location: LocationResult,
+		timestamp: number
+	): Promise<{ path: string; link: string }> {
+		const date = new Date(timestamp);
+		const tz = this.getTimezone();
+		const monthFolder = this.locationService.getVisitNoteMonthFolder(date);
+		await this.locationService.ensureFolderExists(monthFolder);
+
+		const placeBaseName = place.path.replace(/\.md$/, "").split("/").pop() || place.name;
+		const basename = this.locationService.getVisitNoteBasename(date, placeBaseName);
+		const path = this.noteService.uniquePath(monthFolder, basename);
+
+		let address: AddressResult | null = null;
+		try {
+			address = await this.locationService.reverseGeocode(location.latitude, location.longitude);
+		} catch {
+			// Visit note is still created without a resolved address.
+		}
+
+		const createdDate = formatDatePattern(date, "yyyy-MM-dd", tz);
+		const createdTime = formatDatePattern(date, "HH:mm", tz);
+		const content = this.noteService.buildVisitNoteContent(place, {
+			latitude: location.latitude,
+			longitude: location.longitude,
+			address: address?.display || null,
+			mapUrl: this.locationService.getMapUrl(location.latitude, location.longitude),
+			placeLink: this.getAliasedPlaceLink(place),
+			createdDate,
+			createdTime,
+			createdDateTime: `${createdDate} ${createdTime}`,
+		});
+		await this.app.vault.create(path, content);
+
+		return {
+			path,
+			link: `[[${path.replace(/\.md$/, "")}|Visit note]]`,
+		};
 	}
 
 	private async createPlaceManually() {
@@ -505,7 +572,8 @@ export default class MyLocPlugin extends Plugin {
 		template: string,
 		place: PlaceRecord,
 		timestamp: number,
-		duration = ""
+		duration = "",
+		visitLink = ""
 	) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view || !view.file) {
@@ -514,7 +582,8 @@ export default class MyLocPlugin extends Plugin {
 		}
 
 		const values = this.buildInlineContext(place, timestamp, duration);
-		const text = this.locationService.formatInlineTemplate(template, values);
+		const rendered = this.locationService.formatInlineTemplate(template, values);
+		const text = visitLink ? `${rendered} · ${visitLink}` : rendered;
 		await this.noteService.appendUnderHeadingOrAtCursorLine(
 			view.editor,
 			view.file,
@@ -552,8 +621,9 @@ export default class MyLocPlugin extends Plugin {
 		return this.locationService.formatInlineTemplate(place.inlineText, values);
 	}
 
-	private formatLoginEvent(timestamp: number): string {
-		return `- ${this.getDailyNoteLink(timestamp)} ${this.formatDateTime(new Date(timestamp)).time} logged in`;
+	private formatLoginEvent(timestamp: number, visitLink = ""): string {
+		const base = `- ${this.getDailyNoteLink(timestamp)} ${this.formatDateTime(new Date(timestamp)).time} logged in`;
+		return visitLink ? `${base} · ${visitLink}` : base;
 	}
 
 	private formatLogoutEvent(timestamp: number, duration: string): string {
