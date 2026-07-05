@@ -1,7 +1,7 @@
 {
 	"id": "myloc",
 	"name": "MyLoc",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"minAppVersion": "1.11.4",
 	"description": "Location logging, place-aware insertion, and timeline tracking.",
 	"author": "mkobu",

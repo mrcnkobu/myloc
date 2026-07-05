@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 - 2026-07-05
+
+Maintenance release. No user-facing changes.
+
+- Enabled type-checked ESLint (`@typescript-eslint` recommended-type-checked) across the codebase
+- Hardened internal date formatting to remove an untyped value
+
 ## 0.4.0 - 2026-07-05
 
 This release adds optional per-visit notes and hardens place-note frontmatter.
